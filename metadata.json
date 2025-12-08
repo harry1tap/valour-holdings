@@ -1,5 +1,5 @@
 {
-  "name": "Solar Field Reps Dashboard",
-  "description": "A multi-tenant dashboard for Solar Field Reps and Admins to track leads, surveys, installs, and commissions with Supabase authentication and real-time data visualization.",
+  "name": "Grantiau Cymru Dashboard",
+  "description": "A multi-tenant dashboard for Grantiau Cymru Field Reps and Admins to track leads, surveys, installs, and commissions with Supabase authentication and real-time data visualization.",
   "requestFramePermissions": []
 }

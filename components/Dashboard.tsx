@@ -25,7 +25,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
               <Sun className="w-8 h-8 text-blue-500" />
-              <span className="text-xl font-bold text-white tracking-tight">Solar Field Reps</span>
+              <span className="text-xl font-bold text-white tracking-tight">Grantiau Cymru</span>
             </div>
             
             <div className="flex items-center gap-6">

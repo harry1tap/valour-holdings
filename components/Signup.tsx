@@ -98,7 +98,7 @@ export const Signup: React.FC<SignupProps> = ({ onNavigateToLogin }) => {
             <Sun className="w-8 h-8 text-blue-500" />
           </div>
           <h1 className="text-2xl font-bold text-white">Create Account</h1>
-          <p className="text-slate-400 mt-2">Join the Solar Field Reps team</p>
+          <p className="text-slate-400 mt-2">Join the Grantiau Cymru team</p>
         </div>
 
         {error && (
