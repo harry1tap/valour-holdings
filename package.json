@@ -1,5 +1,5 @@
 {
-  "name": "grantiau-cymru-dashboard",
+  "name": "valour-holdings-dashboard",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,6 +12,7 @@
     "lucide-react": "^0.556.0",
     "@supabase/supabase-js": "^2.86.2",
     "react": "^19.2.1",
+    "react-router-dom": "^6.20.0",
     "recharts": "^3.5.1",
     "react-dom": "^19.2.1"
   },
@@ -19,6 +20,9 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32"
   }
 }
