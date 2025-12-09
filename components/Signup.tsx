@@ -6,6 +6,15 @@ interface SignupProps {
   onNavigateToLogin: () => void;
 }
 
+const formatName = (name: string): string => {
+  return name
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+    .trim();
+};
+
 export const Signup: React.FC<SignupProps> = ({ onNavigateToLogin }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -44,12 +53,14 @@ export const Signup: React.FC<SignupProps> = ({ onNavigateToLogin }) => {
     }
 
     try {
+      const formattedName = formatName(name);
+
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            name: name,
+            name: formattedName,
             role: role
           }
         }

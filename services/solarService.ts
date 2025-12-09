@@ -1,6 +1,6 @@
 
 import { supabase } from '../supabaseClient';
-import { SolarLead, UserProfile, LeaderboardEntry, MonthlyActivity, RevenueTrendData, LeadSourceStat, FinancialSummary, CostPerMetric, FinancialTrend, Expense } from '../types';
+import { SolarLead, UserProfile, LeaderboardEntry, MonthlyActivity, RevenueTrendData, LeadSourceStat, FinancialSummary, CostPerMetric, FinancialTrend, Expense, InstallerStat } from '../types';
 
 export const fetchUserProfile = async (email: string): Promise<UserProfile | null> => {
   const { data, error } = await supabase
@@ -315,6 +315,66 @@ export const fetchLeadSourceStats = async (startDate: Date, endDate: Date): Prom
     percentage: total > 0 ? (data.count / total) * 100 : 0,
     conversion: data.count > 0 ? (data.paid / data.count) * 100 : 0
   }));
+};
+
+export const fetchInstallerPerformance = async (startDate: Date, endDate: Date): Promise<InstallerStat[]> => {
+  // Fetch all leads in range
+  const { data, error } = await supabase
+    .schema('solar')
+    .from('solar_leads')
+    .select('Installer, Status, Survey_Booked_Date, Install_Booked_Date, Paid_Date, Lead_Revenue')
+    .gte('Created_At', startDate.toISOString())
+    .lte('Created_At', endDate.toISOString());
+
+  if (error || !data) {
+    console.error('Error fetching installer data:', error);
+    return [];
+  }
+
+  const stats: Record<string, InstallerStat> = {};
+
+  data.forEach((lead) => {
+    const installer = lead.Installer || 'Unassigned';
+    if (!stats[installer]) {
+      stats[installer] = {
+        name: installer,
+        leads: 0,
+        surveys: 0,
+        installs: 0,
+        paid: 0,
+        revenue: 0,
+        leadToPaidRate: 0,
+        avgRevenuePerLead: 0,
+        leadToSurveyRate: 0,
+        surveyToInstallRate: 0,
+        installToPaidRate: 0
+      };
+    }
+
+    stats[installer].leads++;
+    if (lead.Survey_Booked_Date) stats[installer].surveys++;
+    if (lead.Install_Booked_Date) stats[installer].installs++;
+    
+    if (lead.Status === 'Paid') {
+      stats[installer].paid++;
+      stats[installer].revenue += (lead.Lead_Revenue || 0);
+    }
+  });
+
+  return Object.values(stats).map(stat => {
+    const leads = stat.leads || 1; // avoid div by zero
+    const surveys = stat.surveys || 1;
+    const installs = stat.installs || 1;
+    
+    return {
+      ...stat,
+      leadToPaidRate: (stat.paid / leads) * 100,
+      avgRevenuePerLead: stat.revenue / leads,
+      leadToSurveyRate: (stat.surveys / leads) * 100,
+      surveyToInstallRate: (stat.installs / surveys) * 100,
+      installToPaidRate: (stat.paid / installs) * 100
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
 };
 
 // --- Financial Services ---

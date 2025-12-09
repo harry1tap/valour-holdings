@@ -1,3 +1,4 @@
+
 export interface SolarLead {
   id: number;
   Created_At: string; // timestamp
@@ -102,6 +103,20 @@ export interface FinancialTrend {
   revenue: number;
   expenses: number;
   netProfit: number;
+}
+
+export interface InstallerStat {
+  name: string;
+  leads: number;
+  surveys: number;
+  installs: number;
+  paid: number;
+  revenue: number;
+  leadToPaidRate: number;
+  avgRevenuePerLead: number;
+  leadToSurveyRate: number;
+  surveyToInstallRate: number;
+  installToPaidRate: number;
 }
 
 export type DashboardView = 'dashboard' | 'company_kpis';

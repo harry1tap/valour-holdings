@@ -1,10 +1,12 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { PeriodFilter, MonthlyActivity, RevenueTrendData, LeaderboardEntry, LeadSourceStat, UserProfile } from '../types';
 import { fetchKPIMetrics, fetchSixMonthTrend, fetchRevenueTrend, fetchLeaderboardStats, fetchAccountManagerLeaderboard, fetchLeadSourceStats } from '../services/solarService';
-import { Users, Calendar, Sun, Banknote, ClipboardList, TrendingUp, BarChart2, PieChart } from 'lucide-react';
+import { Users, Calendar, Sun, Banknote, ClipboardList, TrendingUp, BarChart2, PieChart, Hammer } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend } from 'recharts';
 import { LoadingSpinner } from './LoadingSpinner';
 import { CompanyFinancialsView } from './CompanyFinancialsView';
+import { CompanyInstallersView } from './CompanyInstallersView';
 
 const KPICard = ({ title, value, color, icon: Icon }: { title: string, value: string | number, color: string, icon: any }) => (
   <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 shadow-sm">
@@ -290,7 +292,7 @@ interface CompanyKPIsViewProps {
 }
 
 export const CompanyKPIsView: React.FC<CompanyKPIsViewProps> = ({ user }) => {
-  const [activeTab, setActiveTab] = useState<'performance' | 'financials'>('performance');
+  const [activeTab, setActiveTab] = useState<'performance' | 'financials' | 'installers'>('performance');
 
   return (
     <div className="space-y-6">
@@ -319,14 +321,23 @@ export const CompanyKPIsView: React.FC<CompanyKPIsViewProps> = ({ user }) => {
             <Banknote className="w-4 h-4" />
             Financials
           </button>
+          <button
+            onClick={() => setActiveTab('installers')}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'installers' 
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                : 'text-slate-400 hover:text-white hover:bg-[#1e293b]'
+            }`}
+          >
+            <Hammer className="w-4 h-4" />
+            Installers
+          </button>
         </div>
       </div>
 
-      {activeTab === 'performance' ? (
-        <CompanyPerformanceView user={user} />
-      ) : (
-        <CompanyFinancialsView user={user} />
-      )}
+      {activeTab === 'performance' && <CompanyPerformanceView user={user} />}
+      {activeTab === 'financials' && <CompanyFinancialsView user={user} />}
+      {activeTab === 'installers' && <CompanyInstallersView />}
     </div>
   );
 };
