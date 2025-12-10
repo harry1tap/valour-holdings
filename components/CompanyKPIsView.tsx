@@ -70,6 +70,9 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
         fetchLeadSourceStats(dateRange.start, dateRange.end)
       ]);
 
+      console.log('CompanyKPIs - raw metrics:', kpiData);
+      console.log('CompanyKPIs - surveys value:', kpiData.surveysCount);
+
       setKpis(kpiData);
       setMonthlyTrend(trends);
       setRevenueTrend(revTrend);

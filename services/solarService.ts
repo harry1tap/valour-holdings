@@ -47,6 +47,14 @@ export const fetchLeads = async (
   // Authorization Logic
   if (user.role === 'field_rep') {
     query = query.eq('Field_Rep', user.name);
+  } else if (user.role === 'account_manager') {
+    if (!user.name) {
+      console.error('User profile name is missing for Account Manager');
+      return [];
+    }
+    console.log('Filtering Leads by Account_Manager:', user.name);
+    // STRICTLY filter by Account_Manager matching the user's name
+    query = query.eq('Account_Manager', user.name);
   } else if (user.role === 'admin') {
     if (selectedRepFilter) {
       query = query.eq('Field_Rep', selectedRepFilter);
@@ -68,64 +76,56 @@ export const fetchKPIMetrics = async (
   endDate: Date,
   selectedRepFilter?: string | null
 ) => {
-  const applyFilter = (query: any) => {
-    if (user.role === 'field_rep') {
-      return query.eq('Field_Rep', user.name);
-    } else if (user.role === 'admin' && selectedRepFilter) {
-      return query.eq('Field_Rep', selectedRepFilter);
-    }
-    return query;
-  };
+  // Cohort Analysis:
+  // 1. Fetch ALL leads created within the period.
+  // 2. Calculate metrics based on the status of THESE leads.
+  
+  let query = supabase
+    .schema('solar')
+    .from('solar_leads')
+    .select('*')
+    .gte('Created_At', startDate.toISOString())
+    .lte('Created_At', endDate.toISOString());
 
-  // 1. Leads Created in period
-  const leadsQuery = applyFilter(
-    supabase.schema('solar').from('solar_leads').select('*', { count: 'exact', head: true })
-      .gte('Created_At', startDate.toISOString())
-      .lte('Created_At', endDate.toISOString())
-  );
+  if (user.role === 'field_rep') {
+    query = query.eq('Field_Rep', user.name);
+  } else if (user.role === 'admin' && selectedRepFilter) {
+    query = query.eq('Field_Rep', selectedRepFilter);
+  }
 
-  // 2. Surveys Booked in period
-  const surveysQuery = applyFilter(
-    supabase.schema('solar').from('solar_leads').select('*', { count: 'exact', head: true })
-      .gte('Survey_Booked_Date', startDate.toISOString())
-      .lte('Survey_Booked_Date', endDate.toISOString())
-  );
+  const { data: leads, error } = await query;
 
-  // 3. Installs Booked in period
-  const installsQuery = applyFilter(
-    supabase.schema('solar').from('solar_leads').select('*', { count: 'exact', head: true })
-      .gte('Install_Booked_Date', startDate.toISOString())
-      .lte('Install_Booked_Date', endDate.toISOString())
-  );
+  if (error) {
+    console.error('Error fetching KPI metrics:', error);
+    return { leadsCount: 0, surveysCount: 0, installsCount: 0, paidCount: 0, revenue: 0 };
+  }
 
-  // 4. Paid in period
-  const paidQuery = applyFilter(
-    supabase.schema('solar').from('solar_leads').select('*', { count: 'exact', head: true })
-      .eq('Status', 'Paid')
-      .gte('Paid_Date', startDate.toISOString())
-      .lte('Paid_Date', endDate.toISOString())
-  );
+  // Debug: Inspect loaded leads
+  console.log('--- KPI METRICS DEBUG ---');
+  console.log(`Fetched ${leads?.length} leads for period ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
-  // 5. Revenue in period (Only for admin view, but we can return it safely)
-  // Need to fetch data to sum it, as Supabase count doesn't sum
-  const revenueQuery = applyFilter(
-    supabase.schema('solar').from('solar_leads').select('Lead_Revenue')
-      .eq('Status', 'Paid')
-      .gte('Paid_Date', startDate.toISOString())
-      .lte('Paid_Date', endDate.toISOString())
-  );
+  const leadsCount = leads?.length || 0;
+  
+  // Calculate specific metrics in-memory
+  const surveysCount = leads?.filter(l => l.Survey_Booked_Date !== null).length || 0;
+  const installsCount = leads?.filter(l => l.Install_Booked_Date !== null).length || 0;
+  const paidCount = leads?.filter(l => l.Status === 'Paid').length || 0;
+  const revenue = leads
+    ?.filter(l => l.Status === 'Paid')
+    .reduce((sum, l) => sum + (l.Lead_Revenue || 0), 0) || 0;
 
-  const [leads, surveys, installs, paid, revenueRes] = await Promise.all([
-    leadsQuery, surveysQuery, installsQuery, paidQuery, revenueQuery
-  ]);
-
-  const revenue = revenueRes.data?.reduce((sum, item) => sum + (item.Lead_Revenue || 0), 0) || 0;
+  // Debug: Log Survey Dates
+  const surveys = leads?.filter(l => l.Survey_Booked_Date !== null);
+  console.log('Leads with Survey_Booked_Date:', surveys);
+  surveys?.forEach(lead => {
+    console.log(`Lead ${lead.id}: Survey_Booked_Date =`, lead.Survey_Booked_Date, typeof lead.Survey_Booked_Date);
+  });
 
   return {
-    leadsCount: leads.count || 0,
-    surveysCount: surveys.count || 0,
-    installsCount: installs.count || 0,
-    paidCount: paid.count || 0,
+    leadsCount,
+    surveysCount,
+    installsCount,
+    paidCount,
     revenue
   };
 };
@@ -168,12 +168,20 @@ export const fetchLeaderboardStats = async (): Promise<LeaderboardEntry[]> => {
   return leaderboard.sort((a, b) => b.paid - a.paid).slice(0, 10);
 };
 
-export const fetchAccountManagerLeaderboard = async (): Promise<LeaderboardEntry[]> => {
-  const { data, error } = await supabase
+export const fetchAccountManagerLeaderboard = async (startDate?: Date, endDate?: Date): Promise<LeaderboardEntry[]> => {
+  let query = supabase
     .schema('solar')
     .from('solar_leads')
     .select('Account_Manager, Status, Install_Booked_Date, Paid_Date')
     .not('Account_Manager', 'is', null);
+
+  if (startDate && endDate) {
+    query = query
+      .gte('Created_At', startDate.toISOString())
+      .lte('Created_At', endDate.toISOString());
+  }
+
+  const { data, error } = await query;
 
   if (error) return [];
 
@@ -197,7 +205,7 @@ export const fetchAccountManagerLeaderboard = async (): Promise<LeaderboardEntry
     conversion: stat.leads > 0 ? (stat.paid / stat.leads) * 100 : 0
   }));
 
-  return leaderboard.sort((a, b) => b.paid - a.paid).slice(0, 5);
+  return leaderboard.sort((a, b) => b.paid - a.paid); // Return all, not just top 5, for AM view
 };
 
 export const fetchSixMonthTrend = async (): Promise<MonthlyActivity[]> => {
@@ -263,7 +271,8 @@ export const fetchRevenueTrend = async (): Promise<RevenueTrendData[]> => {
     .from('solar_leads')
     .select('Paid_Date, Lead_Revenue, Status')
     .eq('Status', 'Paid')
-    .gte('Paid_Date', startDate.toISOString());
+    .gte('Paid_Date', startDate.toISOString())
+    .not('Paid_Date', 'is', null);
 
   if (error) return [];
 
@@ -418,7 +427,8 @@ export const fetchFinancialData = async (startDate: Date, endDate: Date) => {
     .select('Lead_Revenue')
     .eq('Status', 'Paid')
     .gte('Paid_Date', startDate.toISOString())
-    .lte('Paid_Date', endDate.toISOString());
+    .lte('Paid_Date', endDate.toISOString())
+    .not('Paid_Date', 'is', null);
 
   const totalRevenue = revenueLeads?.reduce((sum, l) => sum + (l.Lead_Revenue || 0), 0) || 0;
   
@@ -440,6 +450,7 @@ export const fetchFinancialData = async (startDate: Date, endDate: Date) => {
   // Field
   const fieldLeads = leadsData.filter(l => l.Lead_Source === 'Field Rep');
   const fieldLeadsCount = fieldLeads.length;
+  // Use STRICT date checks
   const fieldSurveysCount = fieldLeads.filter(l => l.Survey_Booked_Date).length;
   const fieldInstallsCount = fieldLeads.filter(l => l.Install_Booked_Date).length;
   const fieldPaidCount = fieldLeads.filter(l => l.Status === 'Paid').length;
@@ -448,6 +459,7 @@ export const fetchFinancialData = async (startDate: Date, endDate: Date) => {
   // Online
   const onlineLeads = leadsData.filter(l => l.Lead_Source === 'Online Ads');
   const onlineLeadsCount = onlineLeads.length;
+  // Use STRICT date checks
   const onlineSurveysCount = onlineLeads.filter(l => l.Survey_Booked_Date).length;
   const onlineInstallsCount = onlineLeads.filter(l => l.Install_Booked_Date).length;
   const onlinePaidCount = onlineLeads.filter(l => l.Status === 'Paid').length;
@@ -519,7 +531,8 @@ export const fetchFinancialTrend = async (): Promise<FinancialTrend[]> => {
     .from('solar_leads')
     .select('Paid_Date, Lead_Revenue, Status')
     .eq('Status', 'Paid')
-    .gte('Paid_Date', startDate.toISOString());
+    .gte('Paid_Date', startDate.toISOString())
+    .not('Paid_Date', 'is', null);
 
   // Fetch Expenses (transaction_date)
   console.log('Fetching expense trend from finances schema...');
