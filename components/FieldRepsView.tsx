@@ -1,12 +1,16 @@
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserProfile, SolarLead, PeriodFilter, LeaderboardEntry } from '../types';
-import { fetchLeads, fetchKPIMetrics, fetchLeaderboardStats } from '../services/solarService';
+import * as solarService from '../services/solarService';
+import * as eco4Service from '../services/eco4Service';
+import { getDateRange } from '../services/dateService';
+import { useBusiness } from '../contexts/BusinessContext';
 import { 
-  Users, Calendar, Sun, Banknote, ClipboardList, Medal
+  Users, Sun, Banknote, ClipboardList, Medal
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { LoadingSpinner } from './LoadingSpinner';
+import { DateFilter } from './DateFilter';
 
 const KPICard = ({ title, value, color, icon: Icon, subtext }: { title: string, value: string | number, color: string, icon: any, subtext?: string }) => (
   <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 shadow-sm">
@@ -42,53 +46,61 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
   const [kpiCounts, setKpiCounts] = useState({ leadsCount: 0, surveysCount: 0, installsCount: 0, paidCount: 0 });
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const { business } = useBusiness();
+  const service = business === 'solar' ? solarService : eco4Service;
+
   const [period, setPeriod] = useState<PeriodFilter>('this_year');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   
-  // Date calculations
-  const dateRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date();
-    
-    switch (period) {
-      case 'this_month':
-        start.setDate(1);
-        break;
-      case 'last_month':
-        start.setMonth(start.getMonth() - 1);
-        start.setDate(1);
-        end.setDate(0);
-        break;
-      case 'this_quarter':
-        start.setMonth(Math.floor(start.getMonth() / 3) * 3);
-        start.setDate(1);
-        break;
-      case 'this_year':
-        start.setMonth(0, 1);
-        break;
-      case 'custom':
-        start.setMonth(0, 1);
-        break;
+  // Active date range used for fetching data
+  const [dateRange, setDateRange] = useState(() => getDateRange('this_year'));
+
+  // Update period defaults based on business
+  useEffect(() => {
+    if (business === 'eco4') {
+      setPeriod('all_time');
+    } else {
+      setPeriod('this_year');
     }
-    start.setHours(0,0,0,0);
-    end.setHours(23,59,59,999);
-    return { start, end };
+  }, [business]);
+
+  // Update active date range when period changes (for presets)
+  useEffect(() => {
+    if (period !== 'custom') {
+      const newRange = getDateRange(period);
+      console.log('Switching to preset period:', period, newRange);
+      setDateRange(newRange);
+    }
   }, [period]);
+
+  const handleApplyCustomDates = () => {
+    console.log('Applying custom dates:', customStart, customEnd);
+    if (customStart && customEnd) {
+      setPeriod('custom');
+      const newRange = getDateRange('custom', customStart, customEnd);
+      console.log('Calculated date range:', newRange);
+      setDateRange(newRange);
+    }
+  };
 
   // Data Fetching
   const loadData = async () => {
     setLoading(true);
+    console.log('Fetching data for range:', dateRange.start, 'to', dateRange.end);
     try {
       // 1. Fetch filtered leads (Recent Leads Table & Conversion calculations)
-      const fetchedLeads = await fetchLeads(user, dateRange.start, dateRange.end, selectedRep || null);
+      const fetchedLeads = await service.fetchLeads(user, dateRange.start, dateRange.end, selectedRep || null);
       setLeads(fetchedLeads);
 
       // 2. Fetch accurate KPI counts (Activity based)
-      const kpis = await fetchKPIMetrics(user, dateRange.start, dateRange.end, selectedRep || null);
+      const kpis = await service.fetchKPIMetrics(user, dateRange.start, dateRange.end, selectedRep || null);
       setKpiCounts(kpis);
 
       // 3. Fetch Global Leaderboard (Once, or on refresh)
-      const lb = await fetchLeaderboardStats();
+      const lb = await service.fetchLeaderboardStats();
       setLeaderboard(lb);
 
       setLastUpdated(new Date());
@@ -102,15 +114,16 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange, selectedRep, user]);
+  }, [dateRange, selectedRep, user, business]);
 
   // --- Metrics Calculation (Conversion) ---
-  const conversionMetrics = useMemo(() => {
+  const conversionMetrics = React.useMemo(() => {
     const leadsCount = leads.length;
     // Strict date checks
-    const surveysCount = leads.filter(l => l.Survey_Booked_Date && l.Survey_Booked_Date !== '').length;
-    const installsCount = leads.filter(l => l.Install_Booked_Date && l.Install_Booked_Date !== '').length;
+    const surveysCount = leads.filter(l => l.Survey_Booked_Date).length;
+    const installsCount = leads.filter(l => l.Install_Booked_Date).length;
     
+    // Commission might not be mapped in ECO4, will be 0
     const totalCommission = leads
       .filter(l => l.Commission_Paid === 'Yes')
       .reduce((sum, l) => sum + (l.Commission_Amount || 0), 0);
@@ -126,11 +139,11 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
   }, [leads]);
 
   // --- Chart Data Preparation (Survey Volume) ---
-  const surveyVolumeData = useMemo(() => {
+  const surveyVolumeData = React.useMemo(() => {
     const data: Record<string, { month: string, count: number }> = {};
      leads.forEach(lead => {
       // Strict date checks
-      if (lead.Survey_Booked_Date && lead.Survey_Booked_Date !== '') {
+      if (lead.Survey_Booked_Date) {
         const date = new Date(lead.Survey_Booked_Date);
         const key = date.toLocaleString('default', { month: 'short' });
         if (!data[key]) data[key] = { month: key, count: 0 };
@@ -144,23 +157,16 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
   return (
     <div className="space-y-8">
       {/* Filters Bar */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
-        <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
-            <Calendar className="w-5 h-5 text-slate-400 mr-2 shrink-0" />
-            {(['this_month', 'last_month', 'this_quarter', 'this_year'] as PeriodFilter[]).map((p) => (
-              <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                period === p 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
-                  : 'bg-[#1e293b] text-slate-400 hover:text-white hover:bg-[#334155]'
-              }`}
-              >
-                {p.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-              </button>
-            ))}
-        </div>
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
+        <DateFilter 
+          period={period} 
+          setPeriod={setPeriod}
+          customStart={customStart}
+          setCustomStart={setCustomStart}
+          customEnd={customEnd}
+          setCustomEnd={setCustomEnd}
+          onApply={handleApplyCustomDates}
+        />
         <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>Last updated: {lastUpdated.toLocaleTimeString()}</span>
         </div>
@@ -172,10 +178,10 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
         <>
           {/* KPI Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <KPICard title="Leads This Period" value={kpiCounts.leadsCount} color="text-blue-500" icon={Users} />
+            <KPICard title="Leads (Paid in Period)" value={kpiCounts.leadsCount} color="text-blue-500" icon={Users} />
             <KPICard title="Surveys Booked" value={kpiCounts.surveysCount} color="text-orange-500" icon={ClipboardList} />
             <KPICard title="Installs Booked" value={kpiCounts.installsCount} color="text-yellow-500" icon={Sun} />
-            <KPICard title="Paid Leads" value={kpiCounts.paidCount} color="text-emerald-500" icon={Banknote} />
+            <KPICard title="Paid Count" value={kpiCounts.paidCount} color="text-emerald-500" icon={Banknote} />
           </div>
 
           {/* Metrics Row */}
@@ -261,7 +267,7 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
           {/* Recent Leads Table */}
           <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl overflow-hidden">
               <div className="p-6 border-b border-[#1e3a5f] flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-white">Recent Leads</h3>
+                <h3 className="text-lg font-semibold text-white">Recent Leads (Paid in Period)</h3>
                 <span className="text-sm text-slate-500">Showing most recent 10</span>
               </div>
               <div className="overflow-x-auto">
@@ -271,7 +277,7 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
                       <th className="px-6 py-4 font-semibold">Customer</th>
                       <th className="px-6 py-4 font-semibold">Postcode</th>
                       <th className="px-6 py-4 font-semibold">Status</th>
-                      <th className="px-6 py-4 font-semibold">Created</th>
+                      <th className="px-6 py-4 font-semibold">Paid Date</th>
                       <th className="px-6 py-4 font-semibold">Survey Date</th>
                       <th className="px-6 py-4 font-semibold">Install Date</th>
                     </tr>
@@ -280,20 +286,20 @@ export const FieldRepsView: React.FC<FieldRepsViewProps> = ({ user, selectedRep 
                     {leads.slice(0, 10).map((lead) => (
                       <tr key={lead.id} className="hover:bg-[#1e293b]/50 transition-colors">
                         <td className="px-6 py-4 font-medium text-white">{lead.Customer_Name}</td>
-                        <td className="px-6 py-4 text-slate-400">{lead.Postcode}</td>
+                        <td className="px-6 py-4 text-slate-400">{lead.Postcode || '-'}</td>
                         <td className="px-6 py-4">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                               ${lead.Status === 'Paid' ? 'bg-emerald-500/10 text-emerald-400' :
-                                lead.Status === 'Install Booked' ? 'bg-yellow-500/10 text-yellow-400' :
-                                lead.Status === 'Survey Booked' ? 'bg-blue-500/10 text-blue-400' :
+                                (lead.Status === 'Install Booked' || lead.Status === 'INSTALL BOOKED') ? 'bg-yellow-500/10 text-yellow-400' :
+                                (lead.Status === 'Survey Booked' || lead.Status === 'SURVEY BOOKED') ? 'bg-blue-500/10 text-blue-400' :
                                 lead.Status === 'Fall Off' ? 'bg-red-500/10 text-red-400' :
                                 'bg-slate-500/10 text-slate-400'
                               }`}>
                               {lead.Status}
                             </span>
                         </td>
-                        <td className="px-6 py-4 text-slate-400 text-sm">
-                          {new Date(lead.Created_At).toLocaleDateString()}
+                        <td className="px-6 py-4 text-emerald-400 font-medium text-sm">
+                          {lead.Paid_Date ? new Date(lead.Paid_Date).toLocaleDateString() : '-'}
                         </td>
                         <td className="px-6 py-4 text-slate-400 text-sm">
                           {lead.Survey_Booked_Date ? new Date(lead.Survey_Booked_Date).toLocaleDateString() : '-'}

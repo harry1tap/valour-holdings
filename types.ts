@@ -36,7 +36,7 @@ export interface DateRange {
   end: Date;
 }
 
-export type PeriodFilter = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
+export type PeriodFilter = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'last_year' | 'all_time' | 'custom';
 
 export interface DashboardMetrics {
   leadsThisMonth: number;

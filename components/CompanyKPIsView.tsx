@@ -1,12 +1,16 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { PeriodFilter, MonthlyActivity, RevenueTrendData, LeaderboardEntry, LeadSourceStat, UserProfile } from '../types';
-import { fetchKPIMetrics, fetchSixMonthTrend, fetchRevenueTrend, fetchLeaderboardStats, fetchAccountManagerLeaderboard, fetchLeadSourceStats } from '../services/solarService';
-import { Users, Calendar, Sun, Banknote, ClipboardList, TrendingUp, BarChart2, PieChart, Hammer } from 'lucide-react';
+import * as solarService from '../services/solarService';
+import * as eco4Service from '../services/eco4Service';
+import { getDateRange } from '../services/dateService';
+import { useBusiness } from '../contexts/BusinessContext';
+import { Users, Sun, Banknote, ClipboardList, TrendingUp, BarChart2, PieChart, Hammer } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend } from 'recharts';
 import { LoadingSpinner } from './LoadingSpinner';
 import { CompanyFinancialsView } from './CompanyFinancialsView';
 import { CompanyInstallersView } from './CompanyInstallersView';
+import { DateFilter } from './DateFilter';
 
 const KPICard = ({ title, value, color, icon: Icon }: { title: string, value: string | number, color: string, icon: any }) => (
   <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 shadow-sm">
@@ -31,8 +35,42 @@ const ConversionCard = ({ title, value, color }: { title: string, value: string,
 
 const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
   const [loading, setLoading] = useState(true);
+  
+  const { business } = useBusiness();
+  const service = business === 'solar' ? solarService : eco4Service;
+
   const [period, setPeriod] = useState<PeriodFilter>('this_year');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  
+  // Active date range
+  const [dateRange, setDateRange] = useState(() => getDateRange('this_year'));
+
+  useEffect(() => {
+    if (business === 'eco4') {
+      setPeriod('all_time');
+    } else {
+      setPeriod('this_year');
+    }
+  }, [business]);
+
+  // Update dateRange when period changes (presets)
+  useEffect(() => {
+    if (period !== 'custom') {
+      const newRange = getDateRange(period);
+      console.log('KPI View: Switching to preset:', period, newRange);
+      setDateRange(newRange);
+    }
+  }, [period]);
+
+  const handleApply = () => {
+     console.log('KPI View: Applying custom dates:', customStart, customEnd);
+     setPeriod('custom');
+     const newRange = getDateRange('custom', customStart, customEnd);
+     console.log('KPI View: New range:', newRange);
+     setDateRange(newRange);
+  };
   
   // Data State
   const [kpis, setKpis] = useState({ leadsCount: 0, surveysCount: 0, installsCount: 0, paidCount: 0, revenue: 0 });
@@ -42,36 +80,18 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
   const [amLeaderboard, setAmLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [sourceStats, setSourceStats] = useState<LeadSourceStat[]>([]);
 
-  // Date Range Logic
-  const dateRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date();
-    switch (period) {
-      case 'this_month': start.setDate(1); break;
-      case 'last_month': start.setMonth(start.getMonth() - 1); start.setDate(1); end.setDate(0); break;
-      case 'this_quarter': start.setMonth(Math.floor(start.getMonth() / 3) * 3); start.setDate(1); break;
-      case 'this_year': start.setMonth(0, 1); break;
-      case 'custom': start.setMonth(0, 1); break;
-    }
-    start.setHours(0,0,0,0);
-    end.setHours(23,59,59,999);
-    return { start, end };
-  }, [period]);
-
   const loadData = async () => {
     setLoading(true);
+    console.log('KPI View: Fetching data for range:', dateRange.start, dateRange.end);
     try {
       const [kpiData, trends, revTrend, repLb, amLb, srcStats] = await Promise.all([
-        fetchKPIMetrics(user, dateRange.start, dateRange.end, null),
-        fetchSixMonthTrend(),
-        fetchRevenueTrend(),
-        fetchLeaderboardStats(),
-        fetchAccountManagerLeaderboard(),
-        fetchLeadSourceStats(dateRange.start, dateRange.end)
+        service.fetchKPIMetrics(user, dateRange.start, dateRange.end, null),
+        service.fetchSixMonthTrend(),
+        service.fetchRevenueTrend(),
+        service.fetchLeaderboardStats(),
+        service.fetchAccountManagerLeaderboard(dateRange.start, dateRange.end),
+        service.fetchLeadSourceStats(dateRange.start, dateRange.end)
       ]);
-
-      console.log('CompanyKPIs - raw metrics:', kpiData);
-      console.log('CompanyKPIs - surveys value:', kpiData.surveysCount);
 
       setKpis(kpiData);
       setMonthlyTrend(trends);
@@ -89,7 +109,7 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
 
   useEffect(() => {
     loadData();
-  }, [dateRange]);
+  }, [dateRange, business]);
 
   // Conversion Calculations
   const leadToSurvey = kpis.leadsCount > 0 ? (kpis.surveysCount / kpis.leadsCount) * 100 : 0;
@@ -101,26 +121,22 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
   return (
     <div className="space-y-8">
       {/* Header & Filters */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
         <div>
            <h2 className="text-xl font-bold text-white">Company Performance</h2>
            <p className="text-sm text-slate-400">Aggregated metrics across all reps</p>
         </div>
-        <div className="flex items-center gap-4">
-           <div className="flex bg-[#1e293b] rounded-full p-1">
-             {(['this_month', 'last_month', 'this_quarter', 'this_year'] as PeriodFilter[]).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                    period === p ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {p.replace('_', ' ').toUpperCase()}
-                </button>
-             ))}
-           </div>
-           <span className="text-xs text-slate-500 hidden md:inline">Updated: {lastUpdated.toLocaleTimeString()}</span>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+           <DateFilter 
+             period={period} 
+             setPeriod={setPeriod}
+             customStart={customStart}
+             setCustomStart={setCustomStart}
+             customEnd={customEnd}
+             setCustomEnd={setCustomEnd}
+             onApply={handleApply}
+           />
+           <span className="text-xs text-slate-500 hidden xl:inline">Updated: {lastUpdated.toLocaleTimeString()}</span>
         </div>
       </div>
 
@@ -129,12 +145,11 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
       ) : (
         <>
           {/* Row 1: KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
              <KPICard title="Total Leads" value={kpis.leadsCount} color="text-blue-500" icon={Users} />
              <KPICard title="Total Surveys" value={kpis.surveysCount} color="text-orange-500" icon={ClipboardList} />
              <KPICard title="Total Installs" value={kpis.installsCount} color="text-yellow-500" icon={Sun} />
              <KPICard title="Total Paid" value={kpis.paidCount} color="text-emerald-500" icon={Banknote} />
-             <KPICard title="Total Revenue" value={`£${kpis.revenue.toLocaleString()}`} color="text-emerald-400" icon={TrendingUp} />
           </div>
 
           {/* Row 2: Conversion Metrics */}

@@ -1,9 +1,14 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { PeriodFilter, FinancialSummary, CostPerMetric, FinancialTrend, UserProfile } from '../types';
-import { fetchFinancialData, fetchFinancialTrend } from '../services/solarService';
+import * as solarService from '../services/solarService';
+import * as eco4Service from '../services/eco4Service';
+import { getDateRange } from '../services/dateService';
+import { useBusiness } from '../contexts/BusinessContext';
 import { LoadingSpinner } from './LoadingSpinner';
 import { TrendingUp, TrendingDown, DollarSign, PieChart as PieIcon, Activity } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
+import { DateFilter } from './DateFilter';
 
 const SummaryCard = ({ title, value, subValue, color, icon: Icon }: { title: string, value: string, subValue?: string, color: string, icon: any }) => (
   <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 shadow-sm flex flex-col justify-between">
@@ -38,9 +43,38 @@ interface CompanyFinancialsViewProps {
 
 export const CompanyFinancialsView: React.FC<CompanyFinancialsViewProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
+  
+  const { business } = useBusiness();
+  const service = business === 'solar' ? solarService : eco4Service;
+
   const [period, setPeriod] = useState<PeriodFilter>('this_year');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   
+  // Active date range
+  const [dateRange, setDateRange] = useState(() => getDateRange('this_year'));
+
+  useEffect(() => {
+    if (business === 'eco4') {
+      setPeriod('all_time');
+    } else {
+      setPeriod('this_year');
+    }
+  }, [business]);
+
+  // Update dateRange when period changes (presets)
+  useEffect(() => {
+    if (period !== 'custom') {
+      setDateRange(getDateRange(period));
+    }
+  }, [period]);
+
+  const handleApply = () => {
+     setPeriod('custom');
+     setDateRange(getDateRange('custom', customStart, customEnd));
+  };
+
   const [summary, setSummary] = useState<FinancialSummary>({ revenue: 0, expenses: 0, netProfit: 0, margin: 0 });
   const [fieldMetrics, setFieldMetrics] = useState<CostPerMetric>({ cpl: 0, cps: 0, cpi: 0 });
   const [onlineMetrics, setOnlineMetrics] = useState<CostPerMetric>({ cpl: 0, cps: 0, cpi: 0 });
@@ -48,27 +82,12 @@ export const CompanyFinancialsView: React.FC<CompanyFinancialsViewProps> = ({ us
   const [expenseBreakdown, setExpenseBreakdown] = useState<any[]>([]);
   const [sourceBreakdown, setSourceBreakdown] = useState<any[]>([]);
 
-  const dateRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date();
-    switch (period) {
-      case 'this_month': start.setDate(1); break;
-      case 'last_month': start.setMonth(start.getMonth() - 1); start.setDate(1); end.setDate(0); break;
-      case 'this_quarter': start.setMonth(Math.floor(start.getMonth() / 3) * 3); start.setDate(1); break;
-      case 'this_year': start.setMonth(0, 1); break;
-      case 'custom': start.setMonth(0, 1); break;
-    }
-    start.setHours(0,0,0,0);
-    end.setHours(23,59,59,999);
-    return { start, end };
-  }, [period]);
-
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await fetchFinancialData(dateRange.start, dateRange.end);
-        const trendData = await fetchFinancialTrend();
+        const data = await service.fetchFinancialData(dateRange.start, dateRange.end);
+        const trendData = await service.fetchFinancialTrend();
         
         setSummary(data.summary);
         setFieldMetrics(data.fieldMetrics);
@@ -84,33 +103,29 @@ export const CompanyFinancialsView: React.FC<CompanyFinancialsViewProps> = ({ us
       }
     };
     load();
-  }, [dateRange]);
+  }, [dateRange, business]);
 
   const formatCurrency = (val: number) => `£${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   return (
     <div className="space-y-8">
       {/* Filters */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
+      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
         <div>
           <h2 className="text-xl font-bold text-white">Company Financials</h2>
           <p className="text-sm text-slate-400">Profit & Loss Analysis</p>
         </div>
-        <div className="flex items-center gap-4">
-           <div className="flex bg-[#1e293b] rounded-full p-1">
-             {(['this_month', 'last_month', 'this_quarter', 'this_year'] as PeriodFilter[]).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                    period === p ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {p.replace('_', ' ').toUpperCase()}
-                </button>
-             ))}
-           </div>
-           <span className="text-xs text-slate-500 hidden md:inline">Updated: {lastUpdated.toLocaleTimeString()}</span>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+           <DateFilter 
+             period={period} 
+             setPeriod={setPeriod}
+             customStart={customStart}
+             setCustomStart={setCustomStart}
+             customEnd={customEnd}
+             setCustomEnd={setCustomEnd}
+             onApply={handleApply}
+           />
+           <span className="text-xs text-slate-500 hidden xl:inline">Updated: {lastUpdated.toLocaleTimeString()}</span>
         </div>
       </div>
 

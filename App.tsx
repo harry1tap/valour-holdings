@@ -7,6 +7,7 @@ import { Dashboard } from './components/Dashboard';
 import { UserProfile } from './types';
 import { fetchUserProfile } from './services/solarService';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { BusinessProvider } from './contexts/BusinessContext';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -74,17 +75,18 @@ const App: React.FC = () => {
     );
   }
 
-  if (!session) {
-    if (currentView === 'signup') {
-      return <Signup onNavigateToLogin={() => setCurrentView('login')} />;
-    }
-    return <Login onNavigateToSignup={() => setCurrentView('signup')} />;
-  }
-
-  if (authError) {
-     return (
-       <div className="min-h-screen bg-[#0a1628] flex items-center justify-center text-white">
-         <div className="bg-red-900/20 border border-red-500 p-6 rounded-lg max-w-md text-center">
+  // Ensure BusinessProvider wraps everything to avoid context errors if hooks are used anywhere or during transitions
+  return (
+    <BusinessProvider>
+      {!session ? (
+        currentView === 'signup' ? (
+          <Signup onNavigateToLogin={() => setCurrentView('login')} />
+        ) : (
+          <Login onNavigateToSignup={() => setCurrentView('signup')} />
+        )
+      ) : authError ? (
+        <div className="min-h-screen bg-[#0a1628] flex items-center justify-center text-white">
+          <div className="bg-red-900/20 border border-red-500 p-6 rounded-lg max-w-md text-center">
             <h2 className="text-xl font-bold mb-2 text-red-400">Authentication Error</h2>
             <p>{authError}</p>
             <p className="text-sm text-slate-400 mt-2">Check console for more details.</p>
@@ -94,16 +96,13 @@ const App: React.FC = () => {
             >
               Back to Login
             </button>
-         </div>
-       </div>
-     );
-  }
-
-  if (userProfile) {
-    return <Dashboard user={userProfile} />;
-  }
-
-  return null;
+          </div>
+        </div>
+      ) : userProfile ? (
+        <Dashboard user={userProfile} />
+      ) : null}
+    </BusinessProvider>
+  );
 };
 
 export default App;

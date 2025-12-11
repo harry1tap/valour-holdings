@@ -1,10 +1,14 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { PeriodFilter, InstallerStat } from '../types';
-import { fetchInstallerPerformance } from '../services/solarService';
+import * as solarService from '../services/solarService';
+import * as eco4Service from '../services/eco4Service';
+import { getDateRange } from '../services/dateService';
+import { useBusiness } from '../contexts/BusinessContext';
 import { LoadingSpinner } from './LoadingSpinner';
 import { Users, ClipboardList, Sun, Banknote, Hammer, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { DateFilter } from './DateFilter';
 
 const KPICard = ({ title, value, color, icon: Icon, subtext }: { title: string, value: string | number, color: string, icon: any, subtext?: string }) => (
   <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 shadow-sm">
@@ -23,30 +27,45 @@ const KPICard = ({ title, value, color, icon: Icon, subtext }: { title: string, 
 
 export const CompanyInstallersView: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<PeriodFilter>('this_year');
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [stats, setStats] = useState<InstallerStat[]>([]);
+  
+  const { business } = useBusiness();
+  const service = business === 'solar' ? solarService : eco4Service;
 
-  const dateRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date();
-    switch (period) {
-      case 'this_month': start.setDate(1); break;
-      case 'last_month': start.setMonth(start.getMonth() - 1); start.setDate(1); end.setDate(0); break;
-      case 'this_quarter': start.setMonth(Math.floor(start.getMonth() / 3) * 3); start.setDate(1); break;
-      case 'this_year': start.setMonth(0, 1); break;
-      case 'custom': start.setMonth(0, 1); break;
+  const [period, setPeriod] = useState<PeriodFilter>('this_year');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  
+  // Active date range
+  const [dateRange, setDateRange] = useState(() => getDateRange('this_year'));
+
+  useEffect(() => {
+    if (business === 'eco4') {
+      setPeriod('all_time');
+    } else {
+      setPeriod('this_year');
     }
-    start.setHours(0,0,0,0);
-    end.setHours(23,59,59,999);
-    return { start, end };
+  }, [business]);
+
+  // Update dateRange when period changes (presets)
+  useEffect(() => {
+    if (period !== 'custom') {
+      setDateRange(getDateRange(period));
+    }
   }, [period]);
+
+  const handleApply = () => {
+     setPeriod('custom');
+     setDateRange(getDateRange('custom', customStart, customEnd));
+  };
+  
+  const [stats, setStats] = useState<InstallerStat[]>([]);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await fetchInstallerPerformance(dateRange.start, dateRange.end);
+        const data = await service.fetchInstallerPerformance(dateRange.start, dateRange.end);
         setStats(data);
         setLastUpdated(new Date());
       } catch (e) {
@@ -56,7 +75,7 @@ export const CompanyInstallersView: React.FC = () => {
       }
     };
     load();
-  }, [dateRange]);
+  }, [dateRange, business]);
 
   // KPI Calculations
   const totalInstallers = stats.length;
@@ -70,26 +89,22 @@ export const CompanyInstallersView: React.FC = () => {
   return (
     <div className="space-y-8">
       {/* Header & Filters */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
+      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
         <div>
            <h2 className="text-xl font-bold text-white">Installer Performance</h2>
            <p className="text-sm text-slate-400">Analysis by Installation Team</p>
         </div>
-        <div className="flex items-center gap-4">
-           <div className="flex bg-[#1e293b] rounded-full p-1">
-             {(['this_month', 'last_month', 'this_quarter', 'this_year'] as PeriodFilter[]).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                    period === p ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {p.replace('_', ' ').toUpperCase()}
-                </button>
-             ))}
-           </div>
-           <span className="text-xs text-slate-500 hidden md:inline">Updated: {lastUpdated.toLocaleTimeString()}</span>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+           <DateFilter 
+             period={period} 
+             setPeriod={setPeriod}
+             customStart={customStart}
+             setCustomStart={setCustomStart}
+             customEnd={customEnd}
+             setCustomEnd={setCustomEnd}
+             onApply={handleApply}
+           />
+           <span className="text-xs text-slate-500 hidden xl:inline">Updated: {lastUpdated.toLocaleTimeString()}</span>
         </div>
       </div>
 

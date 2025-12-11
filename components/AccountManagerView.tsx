@@ -1,12 +1,16 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { UserProfile, SolarLead, PeriodFilter, LeaderboardEntry } from '../types';
-import { fetchLeads, fetchAccountManagerLeaderboard } from '../services/solarService';
+import * as solarService from '../services/solarService';
+import * as eco4Service from '../services/eco4Service';
+import { getDateRange } from '../services/dateService';
+import { useBusiness } from '../contexts/BusinessContext';
 import { 
-  Users, Calendar, Sun, Banknote, ClipboardList, Medal, TrendingUp
+  Users, Calendar, Sun, Banknote, ClipboardList, Medal
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { LoadingSpinner } from './LoadingSpinner';
+import { DateFilter } from './DateFilter';
 
 const KPICard = ({ title, value, color, icon: Icon, subtext }: { title: string, value: string | number, color: string, icon: any, subtext?: string }) => (
   <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 shadow-sm">
@@ -40,38 +44,37 @@ export const AccountManagerView: React.FC<AccountManagerViewProps> = ({ user }) 
   const [leads, setLeads] = useState<SolarLead[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const { business } = useBusiness();
+  const service = business === 'solar' ? solarService : eco4Service;
+
   const [period, setPeriod] = useState<PeriodFilter>('this_year');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   
-  // Date calculations
-  const dateRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date();
-    
-    switch (period) {
-      case 'this_month':
-        start.setDate(1);
-        break;
-      case 'last_month':
-        start.setMonth(start.getMonth() - 1);
-        start.setDate(1);
-        end.setDate(0);
-        break;
-      case 'this_quarter':
-        start.setMonth(Math.floor(start.getMonth() / 3) * 3);
-        start.setDate(1);
-        break;
-      case 'this_year':
-        start.setMonth(0, 1);
-        break;
-      case 'custom':
-        start.setMonth(0, 1);
-        break;
+  // Active date range
+  const [dateRange, setDateRange] = useState(() => getDateRange('this_year'));
+
+  useEffect(() => {
+    if (business === 'eco4') {
+      setPeriod('all_time');
+    } else {
+      setPeriod('this_year');
     }
-    start.setHours(0,0,0,0);
-    end.setHours(23,59,59,999);
-    return { start, end };
+  }, [business]);
+
+  // Update dateRange when period changes (presets)
+  useEffect(() => {
+    if (period !== 'custom') {
+      setDateRange(getDateRange(period));
+    }
   }, [period]);
+
+  const handleApply = () => {
+     setPeriod('custom');
+     setDateRange(getDateRange('custom', customStart, customEnd));
+  };
 
   // Data Fetching
   const loadData = async () => {
@@ -79,11 +82,11 @@ export const AccountManagerView: React.FC<AccountManagerViewProps> = ({ user }) 
     try {
       // 1. Single Query to get ALL filtered data for this Account Manager
       console.log(`Fetching leads for Account Manager: ${user.name}`);
-      const fetchedLeads = await fetchLeads(user, dateRange.start, dateRange.end);
+      const fetchedLeads = await service.fetchLeads(user, dateRange.start, dateRange.end, null);
       setLeads(fetchedLeads);
 
       // 2. Fetch Global Leaderboard (for comparison)
-      const lb = await fetchAccountManagerLeaderboard(dateRange.start, dateRange.end);
+      const lb = await service.fetchAccountManagerLeaderboard(dateRange.start, dateRange.end);
       setLeaderboard(lb);
 
       setLastUpdated(new Date());
@@ -98,14 +101,14 @@ export const AccountManagerView: React.FC<AccountManagerViewProps> = ({ user }) 
     if (user.name) {
       loadData();
     }
-  }, [dateRange, user]);
+  }, [dateRange, user, business]);
 
   // --- Client-Side Metrics Calculation ---
-  const stats = useMemo(() => {
+  const stats = React.useMemo(() => {
     const totalLeads = leads.length;
     // Strict checks for non-null and non-empty dates
-    const surveys = leads.filter(l => l.Survey_Booked_Date && l.Survey_Booked_Date !== '').length;
-    const installs = leads.filter(l => l.Install_Booked_Date && l.Install_Booked_Date !== '').length;
+    const surveys = leads.filter(l => l.Survey_Booked_Date).length;
+    const installs = leads.filter(l => l.Install_Booked_Date).length;
     const paid = leads.filter(l => l.Status === 'Paid').length;
     const totalCommission = leads.reduce((sum, l) => sum + (l.Commission_Amount || 0), 0);
 
@@ -124,26 +127,26 @@ export const AccountManagerView: React.FC<AccountManagerViewProps> = ({ user }) 
   }, [leads]);
 
   // --- Chart Data Preparation (Monthly Activity) ---
-  const chartData = useMemo(() => {
+  const chartData = React.useMemo(() => {
     const data: Record<string, { month: string, surveys: number, installs: number, paid: number }> = {};
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     // Initialize logic could go here, but we'll build dynamically
     leads.forEach(lead => {
       // Surveys
-      if (lead.Survey_Booked_Date && lead.Survey_Booked_Date !== '') {
+      if (lead.Survey_Booked_Date) {
         const m = new Date(lead.Survey_Booked_Date).toLocaleString('default', { month: 'short' });
         if (!data[m]) data[m] = { month: m, surveys: 0, installs: 0, paid: 0 };
         data[m].surveys++;
       }
       // Installs
-      if (lead.Install_Booked_Date && lead.Install_Booked_Date !== '') {
+      if (lead.Install_Booked_Date) {
         const m = new Date(lead.Install_Booked_Date).toLocaleString('default', { month: 'short' });
         if (!data[m]) data[m] = { month: m, surveys: 0, installs: 0, paid: 0 };
         data[m].installs++;
       }
       // Paid
-      if (lead.Status === 'Paid' && lead.Paid_Date && lead.Paid_Date !== '') {
+      if (lead.Status === 'Paid' && lead.Paid_Date) {
         const m = new Date(lead.Paid_Date).toLocaleString('default', { month: 'short' });
         if (!data[m]) data[m] = { month: m, surveys: 0, installs: 0, paid: 0 };
         data[m].paid++;
@@ -159,23 +162,16 @@ export const AccountManagerView: React.FC<AccountManagerViewProps> = ({ user }) 
   return (
     <div className="space-y-8">
       {/* Filters Bar */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
-        <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
-            <Calendar className="w-5 h-5 text-slate-400 mr-2 shrink-0" />
-            {(['this_month', 'last_month', 'this_quarter', 'this_year'] as PeriodFilter[]).map((p) => (
-              <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                period === p 
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' 
-                  : 'bg-[#1e293b] text-slate-400 hover:text-white hover:bg-[#334155]'
-              }`}
-              >
-                {p.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-              </button>
-            ))}
-        </div>
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-[#0f172a] p-4 rounded-xl border border-[#1e3a5f]">
+        <DateFilter 
+          period={period} 
+          setPeriod={setPeriod}
+          customStart={customStart}
+          setCustomStart={setCustomStart}
+          customEnd={customEnd}
+          setCustomEnd={setCustomEnd}
+          onApply={handleApply}
+        />
         <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>Last updated: {lastUpdated.toLocaleTimeString()}</span>
         </div>
@@ -297,13 +293,13 @@ export const AccountManagerView: React.FC<AccountManagerViewProps> = ({ user }) 
                     {leads.slice(0, 10).map((lead) => (
                       <tr key={lead.id} className="hover:bg-[#1e293b]/50 transition-colors">
                         <td className="px-6 py-4 font-medium text-white">{lead.Customer_Name}</td>
-                        <td className="px-6 py-4 text-slate-400">{lead.Postcode}</td>
+                        <td className="px-6 py-4 text-slate-400">{lead.Postcode || '-'}</td>
                         <td className="px-6 py-4 text-blue-300">{lead.Field_Rep}</td>
                         <td className="px-6 py-4">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                               ${lead.Status === 'Paid' ? 'bg-emerald-500/10 text-emerald-400' :
-                                lead.Status === 'Install Booked' ? 'bg-yellow-500/10 text-yellow-400' :
-                                lead.Status === 'Survey Booked' ? 'bg-blue-500/10 text-blue-400' :
+                                (lead.Status === 'Install Booked' || lead.Status === 'INSTALL BOOKED') ? 'bg-yellow-500/10 text-yellow-400' :
+                                (lead.Status === 'Survey Booked' || lead.Status === 'SURVEY BOOKED') ? 'bg-blue-500/10 text-blue-400' :
                                 lead.Status === 'Fall Off' ? 'bg-red-500/10 text-red-400' :
                                 'bg-slate-500/10 text-slate-400'
                               }`}>
