@@ -84,13 +84,14 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
     setLoading(true);
     console.log('KPI View: Fetching data for range:', dateRange.start, dateRange.end);
     try {
-      // Optimization: Split requests to avoid browser connection limits
+      // Split requests to avoid browser concurrent connection limits (especially for ECO4 which fires multiple internal requests)
       
       // 1. Critical KPIs (Top Row)
       const kpiData = await service.fetchKPIMetrics(user, dateRange.start, dateRange.end, null);
       setKpis(kpiData);
 
-      // 2. Secondary Data (Charts & Leaderboards)
+      // 2. Charts & Leaderboards (Secondary)
+      // Run these in a separate batch
       const [trends, revTrend, repLb, amLb, srcStats] = await Promise.all([
         service.fetchSixMonthTrend(),
         service.fetchRevenueTrend(),
@@ -106,7 +107,7 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
       setSourceStats(srcStats);
       setLastUpdated(new Date());
     } catch (e) {
-      console.error('Error loading KPI data:', e);
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -124,6 +125,7 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
     return Math.min(val, 100);
   };
 
+  // Solar Metrics
   const leadToSurvey = calcPerc(kpis.surveysCount, kpis.leadsCount);
   const surveyToInstall = calcPerc(kpis.installsCount, kpis.surveysCount);
   
@@ -132,6 +134,7 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
   
   // ECO4 Specific Metric: Lead -> Paid
   // Calculation: (Total Paid / Total Leads) * 100
+  // Explicitly using Paid Count / Leads Count as requested
   const leadToPaidECO4Raw = kpis.leadsCount > 0 ? (kpis.paidCount / kpis.leadsCount) * 100 : 0;
   const leadToPaidECO4 = Math.min(leadToPaidECO4Raw, 100);
 
@@ -173,15 +176,15 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
 
           {/* Row 2: Conversion Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             <ConversionCard title="Lead → Survey" value={leadToSurvey.toFixed(1)} color="text-emerald-400" />
-             <ConversionCard title="Survey → Install" value={surveyToInstall.toFixed(1)} color="text-orange-400" />
-             
-             {/* Dynamic Third Card */}
-             {business === 'eco4' ? (
-                <ConversionCard title="Lead → Paid" value={leadToPaidECO4.toFixed(1)} color="text-blue-400" />
-             ) : (
-                <ConversionCard title="Install → Paid" value={installToPaid.toFixed(1)} color="text-blue-400" />
-             )}
+              <ConversionCard title="Lead → Survey" value={leadToSurvey.toFixed(1)} color="text-emerald-400" />
+              <ConversionCard title="Survey → Install" value={surveyToInstall.toFixed(1)} color="text-orange-400" />
+              
+              {/* Conditional 3rd Card based on Business Type */}
+              {business === 'eco4' ? (
+                 <ConversionCard title="Lead → Paid" value={leadToPaidECO4.toFixed(1)} color="text-blue-400" />
+              ) : (
+                 <ConversionCard title="Install → Paid" value={installToPaid.toFixed(1)} color="text-blue-400" />
+              )}
           </div>
 
           {/* Row 3: Charts */}
@@ -326,61 +329,6 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
           </div>
         </>
       )}
-    </div>
-  );
-};
-
-interface CompanyKPIsViewProps {
-  user: UserProfile;
-}
-
-export const CompanyKPIsView: React.FC<CompanyKPIsViewProps> = ({ user }) => {
-  const [activeTab, setActiveTab] = useState<'performance' | 'financials' | 'installers'>('performance');
-
-  return (
-    <div className="space-y-6">
-      {/* Sub-navigation for Admins */}
-      <div className="flex justify-center">
-        <div className="inline-flex bg-[#0f172a] p-1 rounded-xl border border-[#1e3a5f]">
-          <button
-            onClick={() => setActiveTab('performance')}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'performance' 
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-[#1e293b]'
-            }`}
-          >
-            <BarChart2 className="w-4 h-4" />
-            Performance
-          </button>
-          <button
-            onClick={() => setActiveTab('financials')}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'financials' 
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-[#1e293b]'
-            }`}
-          >
-            <Banknote className="w-4 h-4" />
-            Financials
-          </button>
-          <button
-            onClick={() => setActiveTab('installers')}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'installers' 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-[#1e293b]'
-            }`}
-          >
-            <Hammer className="w-4 h-4" />
-            Installers
-          </button>
-        </div>
-      </div>
-
-      {activeTab === 'performance' && <CompanyPerformanceView user={user} />}
-      {activeTab === 'financials' && <CompanyFinancialsView user={user} />}
-      {activeTab === 'installers' && <CompanyInstallersView />}
     </div>
   );
 };

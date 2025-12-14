@@ -72,8 +72,8 @@ export const fetchLeads = async (
     .schema('accounts')
     .from('Accounts')
     .select('*')
-    .gte('Paid Date', startDate.toISOString())
-    .lte('Paid Date', endDate.toISOString());
+    .gte('"Paid Date"', startDate.toISOString())
+    .lte('"Paid Date"', endDate.toISOString());
 
   // NOTE: Cannot filter by Field Rep or Account Manager as columns don't exist.
   // if (selectedRepFilter) ...
@@ -99,46 +99,56 @@ export const fetchKPIMetrics = async (
     return { leadsCount: 0, surveysCount: 0, installsCount: 0, paidCount: 0, revenue: 0 };
   }
 
-  // 1. Fetch Pipeline Counts from public.ECO4_Leads
-  // Used for: Leads, Surveys, Installs
-  const { data: leadsData, error: leadsError } = await supabaseECO4
-    .from('ECO4_Leads')
-    .select('Lead_Created_Date, Survey_Date, Install_Date')
-    .gte('Lead_Created_Date', startDate.toISOString())
-    .lte('Lead_Created_Date', endDate.toISOString());
+  // Run queries in parallel for efficiency
+  const [leadsRes, surveysRes, installsRes, accountsRes] = await Promise.all([
+    // 1. Total Leads: Exact count from ECO4_Leads
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString()),
 
-  if (leadsError) {
-     console.error('Error fetching ECO4_Leads pipeline:', JSON.stringify(leadsError, null, 2));
-  }
+    // 2. Surveys: Cohort analysis (Leads created in period THAT have a survey date)
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString())
+      .not('Survey_Date', 'is', null),
 
-  // 2. Fetch Financials from accounts.Accounts (Activity based)
-  // Used for: Paid Count, Revenue
-  let accountsQuery = supabaseECO4
-    .schema('accounts')
-    .from('Accounts')
-    .select('Payment Total (Net)')
-    .gte('Paid Date', startDate.toISOString())
-    .lte('Paid Date', endDate.toISOString());
+    // 3. Installs: Cohort analysis (Leads created in period THAT have an install date)
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString())
+      .not('Install_Date', 'is', null),
 
-  const { data: accountsData, error: accountsError } = await accountsQuery;
+    // 4. Paid/Revenue: From Accounts (Activity based on Paid Date)
+    supabaseECO4
+      .schema('accounts')
+      .from('Accounts')
+      .select('"Payment Total (Net)"')
+      .gte('"Paid Date"', startDate.toISOString())
+      .lte('"Paid Date"', endDate.toISOString())
+  ]);
 
-  if (accountsError) {
-    console.error('Error fetching ECO4 KPI metrics (Accounts):', JSON.stringify(accountsError, null, 2));
-  }
+  if (leadsRes.error) console.error('Error counting ECO4 Leads:', JSON.stringify(leadsRes.error, null, 2));
+  if (accountsRes.error) console.error('Error fetching ECO4 Accounts:', JSON.stringify(accountsRes.error, null, 2));
 
-  // Calculate Metrics
-  const leadsCount = leadsData?.length || 0;
-  // Cohort analysis: Count surveys/installs associated with the leads created in this period
-  // (Or activity if interpreted differently, but standard is cohort for funnel)
-  const surveysCount = leadsData?.filter(l => l.Survey_Date).length || 0;
-  const installsCount = leadsData?.filter(l => l.Install_Date).length || 0;
+  // Extract Counts
+  const leadsCount = leadsRes.count || 0;
+  const surveysCount = surveysRes.count || 0;
+  const installsCount = installsRes.count || 0;
 
-  const paidCount = accountsData?.length || 0;
-  const revenue = accountsData?.reduce((sum, row) => {
+  // Calculate Revenue from Accounts data
+  const accountsData = accountsRes.data || [];
+  const paidCount = accountsData.length;
+  const revenue = accountsData.reduce((sum, row) => {
     return sum + parseCurrency(row['Payment Total (Net)']);
-  }, 0) || 0;
+  }, 0);
 
-  console.log(`ECO4 Metrics: Leads=${leadsCount}, Surveys=${surveysCount}, Installs=${installsCount}, Paid=${paidCount}, Revenue=${revenue}`);
+  console.log(`ECO4 Metrics (Exact): Leads=${leadsCount}, Surveys=${surveysCount}, Installs=${installsCount}, Paid=${paidCount}, Revenue=${revenue}`);
 
   return {
     leadsCount,
@@ -166,65 +176,70 @@ export const fetchSixMonthTrend = async (): Promise<MonthlyActivity[]> => {
   startDate.setMonth(startDate.getMonth() - 5);
   startDate.setDate(1);
 
-  // 1. Fetch Pipeline Data (ECO4_Leads)
-  const { data: leadsData, error: leadsError } = await supabaseECO4
-    .from('ECO4_Leads')
-    .select('Lead_Created_Date, Survey_Date, Install_Date')
-    .gte('Lead_Created_Date', startDate.toISOString());
+  try {
+    // 1. Fetch Pipeline Data (ECO4_Leads)
+    const { data: leadsData, error: leadsError } = await supabaseECO4
+      .from('ECO4_Leads')
+      .select('Lead_Created_Date, Survey_Date, Install_Date')
+      .gte('Lead_Created_Date', startDate.toISOString());
 
-  if (leadsError) {
-    console.error('Error fetching ECO4 6-month trend (Leads):', JSON.stringify(leadsError, null, 2));
+    if (leadsError) {
+      console.error('Error fetching ECO4 6-month trend (Leads):', JSON.stringify(leadsError, null, 2));
+    }
+
+    // 2. Fetch Paid Data (Accounts)
+    const { data: accountsData, error: accountsError } = await supabaseECO4
+      .schema('accounts')
+      .from('Accounts')
+      .select('"Paid Date"')
+      .gte('"Paid Date"', startDate.toISOString());
+
+    if (accountsError) {
+      console.error('Error fetching ECO4 6-month trend (Accounts):', JSON.stringify(accountsError, null, 2));
+    }
+
+    const monthlyData: Record<string, MonthlyActivity> = {};
+    
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(startDate);
+      d.setMonth(d.getMonth() + i);
+      const key = d.toLocaleString('default', { month: 'short' });
+      monthlyData[key] = { month: key, leads: 0, surveys: 0, installs: 0, paid: 0 };
+    }
+
+    // Aggregate Pipeline (Activity-based grouping for trend consistency)
+    leadsData?.forEach(row => {
+      // Lead Created
+      if (row.Lead_Created_Date) {
+        const m = new Date(row.Lead_Created_Date).toLocaleString('default', { month: 'short' });
+        if (monthlyData[m]) monthlyData[m].leads++;
+      }
+      // Survey (Activity)
+      if (row.Survey_Date) {
+        const m = new Date(row.Survey_Date).toLocaleString('default', { month: 'short' });
+        if (monthlyData[m]) monthlyData[m].surveys++;
+      }
+      // Install (Activity)
+      if (row.Install_Date) {
+        const m = new Date(row.Install_Date).toLocaleString('default', { month: 'short' });
+        if (monthlyData[m]) monthlyData[m].installs++;
+      }
+    });
+
+    // Aggregate Paid
+    accountsData?.forEach(row => {
+      const paidDate = row['Paid Date'];
+      if (paidDate) {
+        const month = new Date(paidDate).toLocaleString('default', { month: 'short' });
+        if (monthlyData[month]) monthlyData[month].paid++;
+      }
+    });
+
+    return Object.values(monthlyData);
+  } catch (err) {
+    console.error("Exception in fetchSixMonthTrend:", err);
+    return [];
   }
-
-  // 2. Fetch Paid Data (Accounts)
-  const { data: accountsData, error: accountsError } = await supabaseECO4
-    .schema('accounts')
-    .from('Accounts')
-    .select('Paid Date')
-    .gte('Paid Date', startDate.toISOString());
-
-  if (accountsError) {
-    console.error('Error fetching ECO4 6-month trend (Accounts):', JSON.stringify(accountsError, null, 2));
-  }
-
-  const monthlyData: Record<string, MonthlyActivity> = {};
-  
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(startDate);
-    d.setMonth(d.getMonth() + i);
-    const key = d.toLocaleString('default', { month: 'short' });
-    monthlyData[key] = { month: key, leads: 0, surveys: 0, installs: 0, paid: 0 };
-  }
-
-  // Aggregate Pipeline (Activity-based grouping for trend consistency)
-  leadsData?.forEach(row => {
-    // Lead Created
-    if (row.Lead_Created_Date) {
-      const m = new Date(row.Lead_Created_Date).toLocaleString('default', { month: 'short' });
-      if (monthlyData[m]) monthlyData[m].leads++;
-    }
-    // Survey (Activity)
-    if (row.Survey_Date) {
-      const m = new Date(row.Survey_Date).toLocaleString('default', { month: 'short' });
-      if (monthlyData[m]) monthlyData[m].surveys++;
-    }
-    // Install (Activity)
-    if (row.Install_Date) {
-      const m = new Date(row.Install_Date).toLocaleString('default', { month: 'short' });
-      if (monthlyData[m]) monthlyData[m].installs++;
-    }
-  });
-
-  // Aggregate Paid
-  accountsData?.forEach(row => {
-    const paidDate = row['Paid Date'];
-    if (paidDate) {
-      const month = new Date(paidDate).toLocaleString('default', { month: 'short' });
-      if (monthlyData[month]) monthlyData[month].paid++;
-    }
-  });
-
-  return Object.values(monthlyData);
 };
 
 export const fetchRevenueTrend = async (): Promise<RevenueTrendData[]> => {
@@ -232,130 +247,147 @@ export const fetchRevenueTrend = async (): Promise<RevenueTrendData[]> => {
   startDate.setMonth(startDate.getMonth() - 5);
   startDate.setDate(1);
 
-  const { data, error } = await supabaseECO4
-    .schema('accounts')
-    .from('Accounts')
-    .select('*')
-    .gte('Paid Date', startDate.toISOString());
+  try {
+    const { data, error } = await supabaseECO4
+      .schema('accounts')
+      .from('Accounts')
+      .select('"Paid Date", "Payment Total (Net)"') // Optimized select
+      .gte('"Paid Date"', startDate.toISOString());
 
-  if (error) {
-    console.error('Error fetching ECO4 revenue trend:', JSON.stringify(error, null, 2));
+    if (error) {
+      console.error('Error fetching ECO4 revenue trend:', JSON.stringify(error, null, 2));
+      return [];
+    }
+
+    const trend: Record<string, number> = {};
+    
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(startDate);
+      d.setMonth(d.getMonth() + i);
+      const key = d.toLocaleString('default', { month: 'short' });
+      trend[key] = 0;
+    }
+
+    data.forEach(row => {
+      const paidDate = row['Paid Date'];
+      if (paidDate) {
+        const month = new Date(paidDate).toLocaleString('default', { month: 'short' });
+        if (trend[month] !== undefined) {
+          trend[month] += parseCurrency(row['Payment Total (Net)']);
+        }
+      }
+    });
+
+    return Object.entries(trend).map(([month, revenue]) => ({ month, revenue }));
+  } catch (err) {
+    console.error("Exception in fetchRevenueTrend:", err);
     return [];
   }
-
-  const trend: Record<string, number> = {};
-  
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(startDate);
-    d.setMonth(d.getMonth() + i);
-    const key = d.toLocaleString('default', { month: 'short' });
-    trend[key] = 0;
-  }
-
-  data.forEach(row => {
-    const paidDate = row['Paid Date'];
-    if (paidDate) {
-      const month = new Date(paidDate).toLocaleString('default', { month: 'short' });
-      if (trend[month] !== undefined) {
-        trend[month] += parseCurrency(row['Payment Total (Net)']);
-      }
-    }
-  });
-
-  return Object.entries(trend).map(([month, revenue]) => ({ month, revenue }));
 };
 
 export const fetchLeadSourceStats = async (startDate: Date, endDate: Date): Promise<LeadSourceStat[]> => {
-  // Use ECO4_Leads for Total Leads count to accurate Conversion
-  const { data: leadsData } = await supabaseECO4
-    .from('ECO4_Leads')
-    .select('Lead_Created_Date')
-    .gte('Lead_Created_Date', startDate.toISOString())
-    .lte('Lead_Created_Date', endDate.toISOString());
+  try {
+    // Use Exact Count for Total Leads
+    const { count: leadsCount, error: leadsError } = await supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString());
 
-  // Use Accounts for Paid count
-  const { data: accountsData } = await supabaseECO4
-    .schema('accounts')
-    .from('Accounts')
-    .select('Paid Date')
-    .gte('Paid Date', startDate.toISOString())
-    .lte('Paid Date', endDate.toISOString());
+    if (leadsError) console.error("Error fetching Lead Source (Leads):", leadsError);
 
-  const leadsCount = leadsData?.length || 0;
-  const paidCount = accountsData?.length || 0;
+    // Use Exact Count for Paid
+    const { count: paidCount, error: paidError } = await supabaseECO4
+      .schema('accounts')
+      .from('Accounts')
+      .select('*', { count: 'exact', head: true })
+      .gte('"Paid Date"', startDate.toISOString())
+      .lte('"Paid Date"', endDate.toISOString());
 
-  // Since we only have one source "ECO4", we calculate aggregate conversion
-  const conversion = leadsCount > 0 ? (paidCount / leadsCount) * 100 : 0;
+    if (paidError) console.error("Error fetching Lead Source (Paid):", paidError);
 
-  return [{
-    source: 'ECO4',
-    count: leadsCount,
-    percentage: 100,
-    conversion: conversion
-  }];
+    const safeLeads = leadsCount || 0;
+    const safePaid = paidCount || 0;
+
+    // Since we only have one source "ECO4", we calculate aggregate conversion
+    const conversion = safeLeads > 0 ? (safePaid / safeLeads) * 100 : 0;
+
+    return [{
+      source: 'ECO4',
+      count: safeLeads,
+      percentage: 100,
+      conversion: conversion
+    }];
+  } catch (err) {
+    console.error("Exception in fetchLeadSourceStats:", err);
+    return [];
+  }
 };
 
 export const fetchInstallerPerformance = async (startDate: Date, endDate: Date): Promise<InstallerStat[]> => {
-  const { data, error } = await supabaseECO4
-    .schema('accounts')
-    .from('Accounts')
-    .select('*')
-    .gte('Paid Date', startDate.toISOString())
-    .lte('Paid Date', endDate.toISOString());
+  try {
+    const { data, error } = await supabaseECO4
+      .schema('accounts')
+      .from('Accounts')
+      .select('"Installer", "Paid Date", "Payment Total (Net)"') // Optimized select
+      .gte('"Paid Date"', startDate.toISOString())
+      .lte('"Paid Date"', endDate.toISOString());
 
-  if (error || !data) {
-    console.error('Error fetching ECO4 installer data:', JSON.stringify(error, null, 2));
-    return [];
-  }
-
-  const stats: Record<string, InstallerStat> = {};
-
-  data.forEach((row) => {
-    const installer = row['Installer'] || 'Unassigned';
-    if (!stats[installer]) {
-      stats[installer] = {
-        name: installer,
-        leads: 0,
-        surveys: 0,
-        installs: 0,
-        paid: 0,
-        revenue: 0,
-        leadToPaidRate: 0,
-        avgRevenuePerLead: 0,
-        leadToSurveyRate: 0,
-        surveyToInstallRate: 0,
-        installToPaidRate: 0
-      };
+    if (error || !data) {
+      console.error('Error fetching ECO4 installer data:', JSON.stringify(error, null, 2));
+      return [];
     }
 
-    const revenue = parseCurrency(row['Payment Total (Net)']);
+    const stats: Record<string, InstallerStat> = {};
 
-    // Since we only check Accounts (Paid), all these are Paid deals.
-    // Leads/Surveys/Installs for Installer performance are derived from Paid set only.
-    // We cannot join with ECO4_Leads for installer accuracy without Installer column in Leads table.
-    stats[installer].leads++;
-    stats[installer].surveys++;
-    stats[installer].installs++;
-    stats[installer].paid++;
-    stats[installer].revenue += revenue;
-  });
+    data.forEach((row) => {
+      const installer = row['Installer'] || 'Unassigned';
+      if (!stats[installer]) {
+        stats[installer] = {
+          name: installer,
+          leads: 0,
+          surveys: 0,
+          installs: 0,
+          paid: 0,
+          revenue: 0,
+          leadToPaidRate: 0,
+          avgRevenuePerLead: 0,
+          leadToSurveyRate: 0,
+          surveyToInstallRate: 0,
+          installToPaidRate: 0
+        };
+      }
 
-  return Object.values(stats).map(stat => {
-    const leads = stat.leads || 1;
-    
-    return {
-      ...stat,
-      leadToPaidRate: 100, // Accounts are all paid
-      avgRevenuePerLead: stat.revenue / leads,
-      leadToSurveyRate: 100,
-      surveyToInstallRate: 100,
-      installToPaidRate: 100
-    };
-  }).sort((a, b) => b.revenue - a.revenue);
+      const revenue = parseCurrency(row['Payment Total (Net)']);
+
+      // Since we only check Accounts (Paid), all these are Paid deals.
+      stats[installer].leads++;
+      stats[installer].surveys++;
+      stats[installer].installs++;
+      stats[installer].paid++;
+      stats[installer].revenue += revenue;
+    });
+
+    return Object.values(stats).map(stat => {
+      const leads = stat.leads || 1;
+      
+      return {
+        ...stat,
+        leadToPaidRate: 100, // Accounts are all paid
+        avgRevenuePerLead: stat.revenue / leads,
+        leadToSurveyRate: 100,
+        surveyToInstallRate: 100,
+        installToPaidRate: 100
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+  } catch (err) {
+    console.error("Exception in fetchInstallerPerformance:", err);
+    return [];
+  }
 };
 
 export const fetchFinancialData = async (startDate: Date, endDate: Date) => {
-  // 1. Fetch Expenses from SOLAR DB (Expenses are shared or solar specific, assuming shared for now)
+  // 1. Expenses (Data required for summation)
   const { data: expenses, error: expenseError } = await supabase
     .schema('finances')
     .from('expenses')
@@ -365,30 +397,45 @@ export const fetchFinancialData = async (startDate: Date, endDate: Date) => {
   
   if (expenseError) console.error("Expense Fetch Error:", JSON.stringify(expenseError, null, 2));
 
-  // 2. Fetch ECO4 Leads (for Counts/CPL)
-  const { data: leadsData, error: leadsError } = await supabaseECO4
-    .from('ECO4_Leads')
-    .select('Lead_Created_Date, Survey_Date, Install_Date')
-    .gte('Lead_Created_Date', startDate.toISOString())
-    .lte('Lead_Created_Date', endDate.toISOString());
-  
-  if (leadsError) console.error("ECO4 Leads Fetch Error", JSON.stringify(leadsError, null, 2));
+  // 2. Counts for ECO4 Metrics (Use Exact Counts)
+  const [leadsRes, surveysRes, installsRes] = await Promise.all([
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString()),
+    
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString())
+      .not('Survey_Date', 'is', null),
+    
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString())
+      .not('Install_Date', 'is', null),
+  ]);
+
+  const leadsCount = leadsRes.count || 0;
+  const surveysCount = surveysRes.count || 0;
+  const installsCount = installsRes.count || 0;
 
   // 3. Fetch ECO4 Accounts (Revenue/Paid)
   const { data: accounts, error: accountsError } = await supabaseECO4
     .schema('accounts')
     .from('Accounts')
-    .select('*')
-    .gte('Paid Date', startDate.toISOString())
-    .lte('Paid Date', endDate.toISOString());
+    .select('"Paid Date", "Payment Total (Net)"') // Optimized
+    .gte('"Paid Date"', startDate.toISOString())
+    .lte('"Paid Date"', endDate.toISOString());
 
   if (accountsError) console.error("ECO4 Accounts Fetch Error", JSON.stringify(accountsError, null, 2));
 
   const expenseData = (expenses as Expense[]) || [];
   const accountsData = accounts || [];
-  const leadsCount = leadsData?.length || 0;
-  const surveysCount = leadsData?.filter(l => l.Survey_Date).length || 0;
-  const installsCount = leadsData?.filter(l => l.Install_Date).length || 0;
   const paidCount = accountsData.length;
 
   // --- Calculate Totals ---
@@ -442,8 +489,8 @@ export const fetchFinancialTrend = async (): Promise<FinancialTrend[]> => {
   const { data: revData, error: revError } = await supabaseECO4
     .schema('accounts')
     .from('Accounts')
-    .select('*')
-    .gte('Paid Date', startDate.toISOString());
+    .select('"Paid Date", "Payment Total (Net)"') // Optimized
+    .gte('"Paid Date"', startDate.toISOString());
     
   if (revError) console.error("ECO4 Trend Error:", JSON.stringify(revError, null, 2));
 

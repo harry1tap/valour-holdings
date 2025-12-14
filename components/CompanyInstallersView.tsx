@@ -208,7 +208,7 @@ export const CompanyInstallersView: React.FC = () => {
                    <Legend />
                    <Bar dataKey="leadToSurveyRate" name="Lead → Survey" fill="#3b82f6" />
                    <Bar dataKey="surveyToInstallRate" name="Survey → Install" fill="#f59e0b" />
-                   <Bar dataKey="installToPaidRate" name="Install → Paid" fill="#10b981" />
+                   <Bar dataKey="installToPaidRate" name={business === 'eco4' ? "Lead → Paid" : "Install → Paid"} fill="#10b981" />
                  </BarChart>
                </ResponsiveContainer>
             </div>

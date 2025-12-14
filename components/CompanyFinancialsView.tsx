@@ -162,22 +162,24 @@ export const CompanyFinancialsView: React.FC<CompanyFinancialsViewProps> = ({ us
             />
           </div>
 
-          {/* Row 2: Cost Per Metrics */}
-          <div>
-            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-slate-400" /> Cost Efficiency Metrics
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <MetricCard title="CPL Field" value={formatCurrency(fieldMetrics.cpl)} theme="blue" />
-              <MetricCard title="CPS Field" value={formatCurrency(fieldMetrics.cps)} theme="blue" />
-              <MetricCard title="CPI Field" value={formatCurrency(fieldMetrics.cpi)} theme="blue" />
+          {/* Row 2: Cost Per Metrics - Hidden for ECO4 */}
+          {business !== 'eco4' && (
+            <div>
+              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-slate-400" /> Cost Efficiency Metrics
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <MetricCard title="CPL Field" value={formatCurrency(fieldMetrics.cpl)} theme="blue" />
+                <MetricCard title="CPS Field" value={formatCurrency(fieldMetrics.cps)} theme="blue" />
+                <MetricCard title="CPI Field" value={formatCurrency(fieldMetrics.cpi)} theme="blue" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <MetricCard title="CPL Online" value={formatCurrency(onlineMetrics.cpl)} theme="purple" />
+                <MetricCard title="CPS Online" value={formatCurrency(onlineMetrics.cps)} theme="purple" />
+                <MetricCard title="CPI Online" value={formatCurrency(onlineMetrics.cpi)} theme="purple" />
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <MetricCard title="CPL Online" value={formatCurrency(onlineMetrics.cpl)} theme="purple" />
-              <MetricCard title="CPS Online" value={formatCurrency(onlineMetrics.cps)} theme="purple" />
-              <MetricCard title="CPI Online" value={formatCurrency(onlineMetrics.cpi)} theme="purple" />
-            </div>
-          </div>
+          )}
 
           {/* Row 3: Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
