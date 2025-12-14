@@ -69,7 +69,7 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0a1628] flex items-center justify-center">
+      <div className="min-h-screen bg-[#020617] flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
@@ -85,7 +85,7 @@ const App: React.FC = () => {
           <Login onNavigateToSignup={() => setCurrentView('signup')} />
         )
       ) : authError ? (
-        <div className="min-h-screen bg-[#0a1628] flex items-center justify-center text-white">
+        <div className="min-h-screen bg-[#020617] flex items-center justify-center text-white">
           <div className="bg-red-900/20 border border-red-500 p-6 rounded-lg max-w-md text-center">
             <h2 className="text-xl font-bold mb-2 text-red-400">Authentication Error</h2>
             <p>{authError}</p>

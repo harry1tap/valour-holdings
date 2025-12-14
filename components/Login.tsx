@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Sun, AlertCircle } from 'lucide-react';
@@ -63,7 +64,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToSignup }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a1628] p-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#020617] p-4">
       <div className="w-full max-w-md bg-[#0f172a] rounded-lg border border-[#1e3a5f] shadow-xl p-8">
         <div className="flex flex-col items-center mb-8">
           <div className="bg-blue-500/10 p-3 rounded-full mb-4">

@@ -21,7 +21,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const isAccountManager = user.role === 'account_manager';
 
   return (
-    <div className="min-h-screen bg-[#0a1628] pb-10">
+    <div className="min-h-screen bg-[#020617] pb-10">
       {/* Header */}
       <header className="bg-[#0f172a] border-b border-[#1e3a5f] sticky top-0 z-30">
         <div className="w-full px-6 lg:px-8">
