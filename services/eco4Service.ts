@@ -100,7 +100,9 @@ export const fetchKPIMetrics = async (
   }
 
   // Run queries in parallel for efficiency
-  const [leadsRes, surveysRes, installsRes, accountsRes] = await Promise.all([
+  // Note: Paid Count now comes from ECO4_Leads (Cohort analysis) to strictly follow Lead->Paid formula
+  // Revenue still comes from Accounts (Cashflow analysis)
+  const [leadsRes, surveysRes, installsRes, paidLeadsRes, accountsRes] = await Promise.all([
     // 1. Total Leads: Exact count from ECO4_Leads
     supabaseECO4
       .from('ECO4_Leads')
@@ -124,7 +126,15 @@ export const fetchKPIMetrics = async (
       .lte('Lead_Created_Date', endDate.toISOString())
       .not('Install_Date', 'is', null),
 
-    // 4. Paid/Revenue: From Accounts (Activity based on Paid Date)
+    // 4. Paid (Cohort): Leads created in period THAT have Overall_Status = 'PAID'
+    supabaseECO4
+      .from('ECO4_Leads')
+      .select('*', { count: 'exact', head: true })
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString())
+      .eq('Overall_Status', 'PAID'),
+
+    // 5. Revenue: From Accounts (Activity based on Paid Date)
     supabaseECO4
       .schema('accounts')
       .from('Accounts')
@@ -134,16 +144,17 @@ export const fetchKPIMetrics = async (
   ]);
 
   if (leadsRes.error) console.error('Error counting ECO4 Leads:', JSON.stringify(leadsRes.error, null, 2));
+  if (paidLeadsRes.error) console.error('Error counting ECO4 Paid Leads:', JSON.stringify(paidLeadsRes.error, null, 2));
   if (accountsRes.error) console.error('Error fetching ECO4 Accounts:', JSON.stringify(accountsRes.error, null, 2));
 
   // Extract Counts
   const leadsCount = leadsRes.count || 0;
   const surveysCount = surveysRes.count || 0;
   const installsCount = installsRes.count || 0;
+  const paidCount = paidLeadsRes.count || 0; // Corrected to use ECO4_Leads cohort count
 
   // Calculate Revenue from Accounts data
   const accountsData = accountsRes.data || [];
-  const paidCount = accountsData.length;
   const revenue = accountsData.reduce((sum, row) => {
     return sum + parseCurrency(row['Payment Total (Net)']);
   }, 0);
@@ -180,14 +191,25 @@ export const fetchSixMonthTrend = async (): Promise<MonthlyActivity[]> => {
     // 1. Fetch Pipeline Data (ECO4_Leads)
     const { data: leadsData, error: leadsError } = await supabaseECO4
       .from('ECO4_Leads')
-      .select('Lead_Created_Date, Survey_Date, Install_Date')
+      .select('Lead_Created_Date, Survey_Date, Install_Date, Overall_Status')
       .gte('Lead_Created_Date', startDate.toISOString());
 
     if (leadsError) {
       console.error('Error fetching ECO4 6-month trend (Leads):', JSON.stringify(leadsError, null, 2));
     }
 
-    // 2. Fetch Paid Data (Accounts)
+    // 2. Fetch Paid Data (Accounts) - Used for Revenue Trend usually, but here for Activity
+    // Since we are fixing KPIs to use ECO4_Leads for Paid Count, we should arguably use it here too for consistency,
+    // but the trend chart usually shows "Paid this month" which is an activity metric (Accounts table),
+    // whereas "Lead -> Paid" is a cohort metric.
+    // However, to align with "Total Paid" KPI which now uses ECO4_Leads (Cohort), 
+    // we should probably stick to the Activity metric for the *Time Series* chart (when it was paid), 
+    // OR we use the date it became PAID in ECO4_Leads?
+    // ECO4_Leads doesn't easily give "Date it became paid" unless `Paid_Date` exists there.
+    // The previous implementation used Accounts for "Paid" bar. I will keep it to Accounts for the Trend Chart
+    // to represent "Completed/Paid Deals in that month", unless specific request to change Trend.
+    // The request was specifically about "Lead -> Paid calculation" (KPI).
+    
     const { data: accountsData, error: accountsError } = await supabaseECO4
       .schema('accounts')
       .from('Accounts')
@@ -226,7 +248,7 @@ export const fetchSixMonthTrend = async (): Promise<MonthlyActivity[]> => {
       }
     });
 
-    // Aggregate Paid
+    // Aggregate Paid (Using Accounts - "When money came in")
     accountsData?.forEach(row => {
       const paidDate = row['Paid Date'];
       if (paidDate) {
@@ -296,13 +318,13 @@ export const fetchLeadSourceStats = async (startDate: Date, endDate: Date): Prom
 
     if (leadsError) console.error("Error fetching Lead Source (Leads):", leadsError);
 
-    // Use Exact Count for Paid
+    // Use Exact Count for Paid from ECO4_Leads (Overall_Status = 'PAID')
     const { count: paidCount, error: paidError } = await supabaseECO4
-      .schema('accounts')
-      .from('Accounts')
+      .from('ECO4_Leads')
       .select('*', { count: 'exact', head: true })
-      .gte('"Paid Date"', startDate.toISOString())
-      .lte('"Paid Date"', endDate.toISOString());
+      .gte('Lead_Created_Date', startDate.toISOString())
+      .lte('Lead_Created_Date', endDate.toISOString())
+      .eq('Overall_Status', 'PAID');
 
     if (paidError) console.error("Error fetching Lead Source (Paid):", paidError);
 
@@ -503,31 +525,40 @@ export const fetchFinancialTrend = async (): Promise<FinancialTrend[]> => {
 
   const trend: Record<string, FinancialTrend> = {};
 
-  for (let i = 0; i < 6; i++) {
+  for (let i = 6; i >= 0; i--) {
     const d = new Date(startDate);
     d.setMonth(d.getMonth() + i);
     const key = d.toLocaleString('default', { month: 'short' });
     trend[key] = { month: key, revenue: 0, expenses: 0, netProfit: 0 };
+  }
+  // Note: Loop above was slightly incorrect in original snippet (should match month keys properly),
+  // but let's stick to the consistent 6-month logic used elsewhere:
+  const finalTrend: Record<string, FinancialTrend> = {};
+  for (let i = 0; i < 6; i++) {
+     const d = new Date(startDate);
+     d.setMonth(d.getMonth() + i);
+     const key = d.toLocaleString('default', { month: 'short' });
+     finalTrend[key] = { month: key, revenue: 0, expenses: 0, netProfit: 0 };
   }
 
   revData?.forEach(row => {
     const paidDate = row['Paid Date'];
     if (paidDate) {
       const m = new Date(paidDate).toLocaleString('default', { month: 'short' });
-      if (trend[m]) trend[m].revenue += parseCurrency(row['Payment Total (Net)']);
+      if (finalTrend[m]) finalTrend[m].revenue += parseCurrency(row['Payment Total (Net)']);
     }
   });
 
   expData?.forEach(e => {
     if (e.transaction_date) {
       const m = new Date(e.transaction_date).toLocaleString('default', { month: 'short' });
-      if (trend[m]) trend[m].expenses += (e.amount || 0);
+      if (finalTrend[m]) finalTrend[m].expenses += (e.amount || 0);
     }
   });
 
-  Object.values(trend).forEach(t => {
+  Object.values(finalTrend).forEach(t => {
     t.netProfit = t.revenue - t.expenses;
   });
 
-  return Object.values(trend);
+  return Object.values(finalTrend);
 };
