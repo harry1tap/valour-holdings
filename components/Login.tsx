@@ -18,13 +18,20 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToSignup }) => {
     setLoading(true);
     setError(null);
 
-    console.log('1. Attempting login with:', email);
+    // Clean inputs to prevent whitespace errors (common cause of invalid credentials)
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
+    console.log('1. Attempting login with:', cleanEmail);
 
     try {
+      // Ensure any stale session is cleared before attempting new login
+      await supabase.auth.signOut();
+
       // 1. Authenticate with Supabase Auth
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: cleanEmail,
+        password: cleanPassword,
       });
 
       console.log('2. Auth response:', { data, error });
@@ -42,7 +49,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToSignup }) => {
         .schema('finances')
         .from('users')
         .select('*')
-        .eq('email', email)
+        .eq('email', cleanEmail)
         .single();
       
       console.log('5. User profile debug response:', { userData, userError });
@@ -57,7 +64,12 @@ export const Login: React.FC<LoginProps> = ({ onNavigateToSignup }) => {
 
     } catch (err: any) {
       console.error('Login Exception:', err);
-      setError(err.message || 'Failed to sign in');
+      // Provide a more user-friendly message for invalid credentials
+      if (err.message === 'Invalid login credentials') {
+        setError('Invalid email or password. Please try again.');
+      } else {
+        setError(err.message || 'Failed to sign in');
+      }
     } finally {
       setLoading(false);
     }

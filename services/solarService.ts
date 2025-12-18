@@ -299,31 +299,46 @@ export const fetchRevenueTrend = async (): Promise<RevenueTrendData[]> => {
 };
 
 export const fetchLeadSourceStats = async (startDate: Date, endDate: Date): Promise<LeadSourceStat[]> => {
-  const { data, error } = await supabase
-    .schema('solar')
-    .from('solar_leads')
-    .select('Lead_Source, Status')
-    .gte('Created_At', startDate.toISOString())
-    .lte('Created_At', endDate.toISOString());
-
-  if (error) return [];
+  const start = startDate.toISOString();
+  const end = endDate.toISOString();
+  
+  // Pagination to avoid row limits
+  let allRows: any[] = [];
+  let from = 0;
+  const batchSize = 1000;
+  
+  while (true) {
+    const { data, error } = await supabase
+      .schema('solar')
+      .from('solar_leads')
+      .select('Lead_Source, Status')
+      .gte('Created_At', start)
+      .lte('Created_At', end)
+      .range(from, from + batchSize - 1);
+      
+    if (error || !data || data.length === 0) break;
+    allRows = [...allRows, ...data];
+    if (data.length < batchSize) break;
+    from += batchSize;
+  }
 
   const stats: Record<string, { count: number, paid: number }> = {};
-  const total = data.length;
+  const total = allRows.length;
 
-  data.forEach(lead => {
-    const source = lead.Lead_Source || 'Unknown';
+  allRows.forEach(lead => {
+    const source = lead.Lead_Source ? String(lead.Lead_Source).trim() : 'Unknown';
     if (!stats[source]) stats[source] = { count: 0, paid: 0 };
     stats[source].count++;
     if (lead.Status === 'Paid') stats[source].paid++;
   });
 
-  return Object.entries(stats).map(([source, data]) => ({
+  return Object.entries(stats).map(([source, sData]) => ({
     source,
-    count: data.count,
-    percentage: total > 0 ? (data.count / total) * 100 : 0,
-    conversion: data.count > 0 ? (data.paid / data.count) * 100 : 0
-  }));
+    count: sData.count,
+    percentage: total > 0 ? (sData.count / total) * 100 : 0,
+    // Denominator is strictly source-specific lead count
+    conversion: sData.count > 0 ? (sData.paid / sData.count) * 100 : 0
+  })).sort((a, b) => b.count - a.count);
 };
 
 export const fetchInstallerPerformance = async (startDate: Date, endDate: Date): Promise<InstallerStat[]> => {

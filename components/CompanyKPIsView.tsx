@@ -59,16 +59,13 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
   useEffect(() => {
     if (period !== 'custom') {
       const newRange = getDateRange(period);
-      console.log('KPI View: Switching to preset:', period, newRange);
       setDateRange(newRange);
     }
   }, [period]);
 
   const handleApply = () => {
-     console.log('KPI View: Applying custom dates:', customStart, customEnd);
      setPeriod('custom');
      const newRange = getDateRange('custom', customStart, customEnd);
-     console.log('KPI View: New range:', newRange);
      setDateRange(newRange);
   };
   
@@ -82,15 +79,10 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
 
   const loadData = async () => {
     setLoading(true);
-    console.log('KPI View: Fetching data for range:', dateRange.start, dateRange.end);
     try {
-      // Optimization: Split requests to avoid browser connection limits
-      
-      // 1. Critical KPIs (Top Row)
       const kpiData = await service.fetchKPIMetrics(user, dateRange.start, dateRange.end, null);
       setKpis(kpiData);
 
-      // 2. Secondary Data (Charts & Leaderboards)
       const [trends, revTrend, repLb, amLb, srcStats] = await Promise.all([
         service.fetchSixMonthTrend(),
         service.fetchRevenueTrend(),
@@ -106,7 +98,7 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
       setSourceStats(srcStats);
       setLastUpdated(new Date());
     } catch (e) {
-      console.error('Error loading KPI data:', e);
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -116,8 +108,6 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
     loadData();
   }, [dateRange, business]);
 
-  // Conversion Calculations
-  // Helper to safely calculate percentage and cap at 100%
   const calcPerc = (numerator: number, denominator: number) => {
     if (denominator <= 0) return 0;
     const val = (numerator / denominator) * 100;
@@ -126,16 +116,12 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
 
   const leadToSurvey = calcPerc(kpis.surveysCount, kpis.leadsCount);
   const surveyToInstall = calcPerc(kpis.installsCount, kpis.surveysCount);
-  
-  // Solar: Install -> Paid
   const installToPaid = calcPerc(kpis.paidCount, kpis.installsCount);
   
-  // ECO4 Specific Metric: Lead -> Paid
-  // Calculation: (Total Paid / Total Leads) * 100
   const leadToPaidECO4Raw = kpis.leadsCount > 0 ? (kpis.paidCount / kpis.leadsCount) * 100 : 0;
   const leadToPaidECO4 = Math.min(leadToPaidECO4Raw, 100);
 
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
   return (
     <div className="space-y-8">
@@ -173,15 +159,14 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
 
           {/* Row 2: Conversion Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             <ConversionCard title="Lead → Survey" value={leadToSurvey.toFixed(1)} color="text-emerald-400" />
-             <ConversionCard title="Survey → Install" value={surveyToInstall.toFixed(1)} color="text-orange-400" />
-             
-             {/* Dynamic Third Card */}
-             {business === 'eco4' ? (
-                <ConversionCard title="Lead → Paid" value={leadToPaidECO4.toFixed(1)} color="text-blue-400" />
-             ) : (
-                <ConversionCard title="Install → Paid" value={installToPaid.toFixed(1)} color="text-blue-400" />
-             )}
+              <ConversionCard title="Lead → Survey" value={leadToSurvey.toFixed(1)} color="text-emerald-400" />
+              <ConversionCard title="Survey → Install" value={surveyToInstall.toFixed(1)} color="text-orange-400" />
+              
+              {business === 'eco4' ? (
+                 <ConversionCard title="Lead → Paid" value={leadToPaidECO4.toFixed(1)} color="text-blue-400" />
+              ) : (
+                 <ConversionCard title="Install → Paid" value={installToPaid.toFixed(1)} color="text-blue-400" />
+              )}
           </div>
 
           {/* Row 3: Charts */}
@@ -226,7 +211,6 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
 
           {/* Row 4: Leaderboards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-             {/* Field Reps */}
              <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl overflow-hidden">
                 <div className="p-4 border-b border-[#1e3a5f]"><h3 className="font-semibold text-white">Top Field Reps</h3></div>
                 <table className="w-full text-sm text-left">
@@ -240,18 +224,17 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
                    </thead>
                    <tbody className="divide-y divide-[#1e3a5f]">
                      {repLeaderboard.slice(0,5).map((rep, i) => (
-                       <tr key={rep.name}>
+                       <tr key={rep.name} className="hover:bg-[#1e293b]/50 transition-colors">
                          <td className="px-4 py-3 text-slate-400">#{i+1}</td>
-                         <td className="px-4 py-3 text-white">{rep.name}</td>
-                         <td className="px-4 py-3 text-right text-emerald-400">{rep.paid}</td>
-                         <td className="px-4 py-3 text-right text-slate-400">{rep.conversion.toFixed(0)}%</td>
+                         <td className="px-4 py-3 text-white font-medium">{rep.name}</td>
+                         <td className="px-4 py-3 text-right text-emerald-400 font-bold">{rep.paid}</td>
+                         <td className="px-4 py-3 text-right text-slate-400">{rep.conversion.toFixed(1)}%</td>
                        </tr>
                      ))}
                    </tbody>
                 </table>
              </div>
 
-             {/* Account Managers */}
              <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl overflow-hidden">
                 <div className="p-4 border-b border-[#1e3a5f]"><h3 className="font-semibold text-white">Top Account Managers</h3></div>
                 <table className="w-full text-sm text-left">
@@ -265,11 +248,11 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
                    </thead>
                    <tbody className="divide-y divide-[#1e3a5f]">
                      {amLeaderboard.slice(0,5).map((am, i) => (
-                       <tr key={am.name}>
+                       <tr key={am.name} className="hover:bg-[#1e293b]/50 transition-colors">
                          <td className="px-4 py-3 text-slate-400">#{i+1}</td>
-                         <td className="px-4 py-3 text-white">{am.name}</td>
-                         <td className="px-4 py-3 text-right text-emerald-400">{am.paid}</td>
-                         <td className="px-4 py-3 text-right text-slate-400">{am.conversion.toFixed(0)}%</td>
+                         <td className="px-4 py-3 text-white font-medium">{am.name}</td>
+                         <td className="px-4 py-3 text-right text-emerald-400 font-bold">{am.paid}</td>
+                         <td className="px-4 py-3 text-right text-slate-400">{am.conversion.toFixed(1)}%</td>
                        </tr>
                      ))}
                    </tbody>
@@ -278,51 +261,76 @@ const CompanyPerformanceView = ({ user }: { user: UserProfile }) => {
           </div>
 
           {/* Row 5: Lead Source Analysis */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-             {/* Pie Chart */}
-             <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 min-h-[300px] flex flex-col">
-                <h3 className="text-lg font-semibold text-white mb-4">Lead Sources</h3>
-                <div className="flex-1 w-full min-h-0 flex justify-center">
-                   <ResponsiveContainer width="100%" height="100%">
-                     <RechartsPie>
-                       <Pie 
-                          data={sourceStats} 
-                          dataKey="count" 
-                          nameKey="source" 
-                          cx="50%" 
-                          cy="50%" 
-                          outerRadius={80} 
-                          label={(entry) => entry.source}
-                       >
-                         {sourceStats.map((entry, index) => (
-                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                         ))}
-                       </Pie>
-                       <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: 'white' }} />
-                     </RechartsPie>
-                   </ResponsiveContainer>
+          <div className={`grid grid-cols-1 ${business === 'solar' ? 'lg:grid-cols-2' : ''} gap-6`}>
+             <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 min-h-[350px] flex flex-col">
+                <h3 className="text-lg font-semibold text-white mb-6">Lead Source Distribution</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+                   <div className="flex justify-center items-center">
+                      <ResponsiveContainer width="100%" height={220}>
+                        <RechartsPie>
+                          <Pie 
+                             data={sourceStats} 
+                             dataKey="count" 
+                             nameKey="source" 
+                             cx="50%" 
+                             cy="50%" 
+                             innerRadius={60}
+                             outerRadius={85} 
+                             paddingAngle={5}
+                             stroke="none"
+                          >
+                            {sourceStats.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: 'white' }} 
+                            itemStyle={{ color: 'white' }}
+                          />
+                        </RechartsPie>
+                      </ResponsiveContainer>
+                   </div>
+                   <div className="flex flex-col justify-center gap-3">
+                      <div className="grid grid-cols-1 gap-2">
+                        {sourceStats.map((stat, index) => (
+                          <div key={stat.source} className="flex items-center justify-between text-sm">
+                             <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                                <span className="text-slate-300 font-medium truncate max-w-[120px]" title={stat.source}>
+                                  {stat.source}
+                                </span>
+                             </div>
+                             <div className="flex items-center gap-3">
+                                <span className="text-white font-bold">{stat.count}</span>
+                                <span className="text-slate-500 text-xs w-12 text-right">({stat.percentage.toFixed(1)}%)</span>
+                             </div>
+                          </div>
+                        ))}
+                      </div>
+                   </div>
                 </div>
              </div>
              
-             {/* Conversion by Source */}
-             <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 min-h-[300px] flex flex-col">
-                <h3 className="text-lg font-semibold text-white mb-4">Conversion by Source (Lead → Paid)</h3>
-                <div className="flex-1 w-full min-h-0">
-                   <ResponsiveContainer width="100%" height="100%">
-                     <BarChart data={sourceStats} layout="vertical" margin={{ left: 20 }}>
-                       <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={true} vertical={false} />
-                       <XAxis type="number" stroke="#94a3b8" unit="%" />
-                       <YAxis type="category" dataKey="source" stroke="#94a3b8" width={100} />
-                       <Tooltip 
-                         cursor={{fill: 'rgba(255,255,255,0.05)'}}
-                         contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: 'white' }} 
-                         formatter={(val: number) => `${val.toFixed(1)}%`}
-                       />
-                       <Bar dataKey="conversion" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                     </BarChart>
-                   </ResponsiveContainer>
+             {business === 'solar' && (
+                <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 min-h-[350px] flex flex-col">
+                    <h3 className="text-lg font-semibold text-white mb-6">Conversion by Source (Lead → Paid)</h3>
+                    <div className="flex-1 w-full min-h-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={sourceStats} layout="vertical" margin={{ left: 20, right: 30 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={true} vertical={false} />
+                        <XAxis type="number" stroke="#94a3b8" unit="%" domain={[0, 100]} />
+                        <YAxis type="category" dataKey="source" stroke="#94a3b8" width={100} />
+                        <Tooltip 
+                            cursor={{fill: 'rgba(255,255,255,0.05)'}}
+                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: 'white' }} 
+                            formatter={(val: number) => `${val.toFixed(1)}%`}
+                        />
+                        <Bar dataKey="conversion" name="Conversion Rate" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                    </div>
                 </div>
-             </div>
+             )}
           </div>
         </>
       )}
@@ -339,7 +347,6 @@ export const CompanyKPIsView: React.FC<CompanyKPIsViewProps> = ({ user }) => {
 
   return (
     <div className="space-y-6">
-      {/* Sub-navigation for Admins */}
       <div className="flex justify-center">
         <div className="inline-flex bg-[#0f172a] p-1 rounded-xl border border-[#1e3a5f]">
           <button
@@ -380,7 +387,7 @@ export const CompanyKPIsView: React.FC<CompanyKPIsViewProps> = ({ user }) => {
 
       {activeTab === 'performance' && <CompanyPerformanceView user={user} />}
       {activeTab === 'financials' && <CompanyFinancialsView user={user} />}
-      {activeTab === 'installers' && <CompanyInstallersView />}
+      {activeTab === 'installers' && <CompanyInstallersView user={user} />}
     </div>
   );
 };

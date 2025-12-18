@@ -226,7 +226,7 @@ export const CompanyFinancialsView: React.FC<CompanyFinancialsViewProps> = ({ us
           </div>
 
           {/* Row 4: Tables */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className={`grid grid-cols-1 ${business === 'eco4' ? '' : 'lg:grid-cols-2'} gap-6`}>
              {/* Expenses Breakdown */}
              <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl overflow-hidden">
                 <div className="p-4 border-b border-[#1e3a5f]"><h3 className="font-semibold text-white">Expense Breakdown</h3></div>
@@ -250,30 +250,32 @@ export const CompanyFinancialsView: React.FC<CompanyFinancialsViewProps> = ({ us
                 </table>
              </div>
 
-             {/* Revenue by Source */}
-             <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl overflow-hidden">
-                <div className="p-4 border-b border-[#1e3a5f]"><h3 className="font-semibold text-white">Revenue by Source</h3></div>
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-[#1e293b] text-slate-400">
-                    <tr>
-                      <th className="px-4 py-3">Source</th>
-                      <th className="px-4 py-3 text-right">Leads</th>
-                      <th className="px-4 py-3 text-right">Revenue</th>
-                      <th className="px-4 py-3 text-right">Conv %</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#1e3a5f]">
-                    {sourceBreakdown.map((item) => (
-                      <tr key={item.source}>
-                        <td className="px-4 py-3 text-white font-medium">{item.source}</td>
-                        <td className="px-4 py-3 text-right text-slate-300">{item.leads}</td>
-                        <td className="px-4 py-3 text-right text-emerald-400">{formatCurrency(item.revenue)}</td>
-                        <td className="px-4 py-3 text-right text-slate-400">{item.conversion.toFixed(1)}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-             </div>
+             {/* Revenue by Source - STRICTLY Hidden for ECO4 */}
+             {business !== 'eco4' && (
+                <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-[#1e3a5f]"><h3 className="font-semibold text-white">Revenue by Source</h3></div>
+                    <table className="w-full text-sm text-left">
+                    <thead className="bg-[#1e293b] text-slate-400">
+                        <tr>
+                        <th className="px-4 py-3">Source</th>
+                        <th className="px-4 py-3 text-right">Leads</th>
+                        <th className="px-4 py-3 text-right">Revenue</th>
+                        <th className="px-4 py-3 text-right">Conv %</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1e3a5f]">
+                        {sourceBreakdown.map((item) => (
+                        <tr key={item.source}>
+                            <td className="px-4 py-3 text-white font-medium">{item.source}</td>
+                            <td className="px-4 py-3 text-right text-slate-300">{item.leads}</td>
+                            <td className="px-4 py-3 text-right text-emerald-400">{formatCurrency(item.revenue)}</td>
+                            <td className="px-4 py-3 text-right text-slate-400">{item.conversion.toFixed(1)}%</td>
+                        </tr>
+                        ))}
+                    </tbody>
+                    </table>
+                </div>
+             )}
           </div>
         </>
       )}

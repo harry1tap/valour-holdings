@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { PeriodFilter, InstallerStat } from '../types';
+import { PeriodFilter, InstallerStat, UserProfile } from '../types';
 import * as solarService from '../services/solarService';
 import * as eco4Service from '../services/eco4Service';
 import { getDateRange } from '../services/dateService';
@@ -25,7 +25,11 @@ const KPICard = ({ title, value, color, icon: Icon, subtext }: { title: string, 
   </div>
 );
 
-export const CompanyInstallersView: React.FC = () => {
+interface CompanyInstallersViewProps {
+  user: UserProfile;
+}
+
+export const CompanyInstallersView: React.FC<CompanyInstallersViewProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   
   const { business } = useBusiness();
@@ -60,6 +64,8 @@ export const CompanyInstallersView: React.FC = () => {
   };
   
   const [stats, setStats] = useState<InstallerStat[]>([]);
+  // Store accurate totals for KPI cards
+  const [globalKpis, setGlobalKpis] = useState({ leadsCount: 0, revenue: 0 });
 
   useEffect(() => {
     const load = async () => {
@@ -67,6 +73,15 @@ export const CompanyInstallersView: React.FC = () => {
       try {
         const data = await service.fetchInstallerPerformance(dateRange.start, dateRange.end);
         setStats(data);
+
+        if (user) {
+          const kpiData = await service.fetchKPIMetrics(user, dateRange.start, dateRange.end, null);
+          setGlobalKpis({ 
+            leadsCount: kpiData.leadsCount, 
+            revenue: kpiData.revenue 
+          });
+        }
+
         setLastUpdated(new Date());
       } catch (e) {
         console.error(e);
@@ -75,12 +90,11 @@ export const CompanyInstallersView: React.FC = () => {
       }
     };
     load();
-  }, [dateRange, business]);
+  }, [dateRange, business, user]);
 
-  // KPI Calculations
   const totalInstallers = stats.length;
-  const totalLeads = stats.reduce((acc, s) => acc + s.leads, 0);
-  const totalRevenue = stats.reduce((acc, s) => acc + s.revenue, 0);
+  const totalLeads = globalKpis.leadsCount;
+  const totalRevenue = globalKpis.revenue;
   const avgRevenuePerLead = totalLeads > 0 ? totalRevenue / totalLeads : 0;
 
   const sortedByCount = [...stats].sort((a, b) => b.leads - a.leads);
@@ -113,7 +127,7 @@ export const CompanyInstallersView: React.FC = () => {
           {/* KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <KPICard title="Total Installers" value={totalInstallers} color="text-indigo-400" icon={Hammer} />
-            <KPICard title="Total Leads Delivered" value={totalLeads} color="text-blue-400" icon={Users} />
+            <KPICard title="Total Leads Delivered" value={totalLeads.toLocaleString()} color="text-blue-400" icon={Users} />
             <KPICard title="Total Revenue" value={`£${totalRevenue.toLocaleString()}`} color="text-emerald-400" icon={Banknote} />
             <KPICard title="Avg Revenue / Lead" value={`£${avgRevenuePerLead.toLocaleString(undefined, {maximumFractionDigits: 0})}`} color="text-purple-400" icon={TrendingUp} />
           </div>
@@ -192,7 +206,7 @@ export const CompanyInstallersView: React.FC = () => {
              </div>
           </div>
 
-          {/* Conversion Comparison Chart */}
+          {/* Conversion Funnel Comparison */}
           <div className="bg-[#0f172a] border border-[#1e3a5f] rounded-xl p-6 min-h-[400px] flex flex-col">
             <h3 className="text-lg font-semibold text-white mb-4">Conversion Funnel Comparison</h3>
             <div className="flex-1 w-full min-h-0">
@@ -208,7 +222,7 @@ export const CompanyInstallersView: React.FC = () => {
                    <Legend />
                    <Bar dataKey="leadToSurveyRate" name="Lead → Survey" fill="#3b82f6" />
                    <Bar dataKey="surveyToInstallRate" name="Survey → Install" fill="#f59e0b" />
-                   <Bar dataKey="installToPaidRate" name={business === 'eco4' ? "Lead → Paid" : "Install → Paid"} fill="#10b981" />
+                   <Bar dataKey="installToPaidRate" name={business === 'eco4' ? "Final Conversion" : "Install → Paid"} fill="#10b981" />
                  </BarChart>
                </ResponsiveContainer>
             </div>
